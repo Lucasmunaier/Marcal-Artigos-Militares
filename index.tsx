@@ -36,7 +36,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- CONFIGURAÇÕES ---
 const ADMIN_PASSWORD = 'admin'; // Senha para o painel de administração
-const WHATSAPP_NUMBER = '5531981055659'; // Número do WhatsApp para receber os pedidos
+const WHATSAPP_NUMBER = '553196950157'; // Número do WhatsApp para receber os pedidos
 const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
 
 // --- COMPONENTES DA UI ---
