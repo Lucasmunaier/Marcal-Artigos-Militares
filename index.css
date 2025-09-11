@@ -68,7 +68,12 @@ header h1 {
     border: none;
     cursor: pointer;
     padding: 0.5rem;
+    transition: transform 0.2s ease;
 }
+.cart-button:active {
+    transform: scale(0.95);
+}
+
 
 .cart-icon {
     width: 28px;
@@ -96,6 +101,7 @@ header h1 {
     align-items: center;
     justify-content: center;
     border: 2px solid var(--background-color);
+    animation: count-pop 0.3s ease-out;
 }
 
 /* Main Content */
@@ -190,6 +196,35 @@ main {
     color: var(--primary-color);
 }
 
+/* Skeleton Loader */
+.skeleton-card {
+    background-color: #fff;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    overflow: hidden;
+}
+.skeleton-image {
+    width: 100%;
+    height: 250px;
+    background-color: #e0e0e0;
+}
+.skeleton-text {
+    height: 20px;
+    width: 80%;
+    background-color: #e0e0e0;
+    margin: 1rem 1rem 0.5rem 1rem;
+    border-radius: 4px;
+}
+.skeleton-text.short {
+    width: 50%;
+}
+.skeleton-card .skeleton-image,
+.skeleton-card .skeleton-text {
+    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
 /* Modal Styles */
 .modal-overlay {
     position: fixed;
@@ -228,14 +263,35 @@ main {
     line-height: 1;
 }
 
+/* Animations */
 @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes slideUp {
     from { transform: translateY(30px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@keyframes cart-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes count-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+.cart-button.bouncing .cart-icon {
+    animation: cart-bounce 0.6s ease;
 }
 
 /* Product Detail Modal */
@@ -317,16 +373,30 @@ main {
     cursor: pointer;
     font-weight: 600;
     font-size: 1rem;
-    transition: background-color var(--transition-speed) ease;
+    transition: background-color var(--transition-speed) ease, transform 0.1s ease;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.5rem;
     margin-top: auto;
 }
+.add-to-cart-button:disabled {
+    opacity: 1;
+    cursor: default;
+}
 
-.add-to-cart-button:hover {
+.add-to-cart-button:hover:not(:disabled) {
     background-color: #0056b3;
 }
+
+.add-to-cart-button.success {
+    background-color: var(--success-color);
+}
+.add-to-cart-button .checkmark {
+    font-size: 1.2em;
+    line-height: 1;
+}
+
 
 /* Cart Modal */
 .cart-modal {
@@ -353,6 +423,13 @@ main {
     gap: 1rem;
     margin-bottom: 1rem;
     align-items: center;
+    animation: fadeIn 0.4s ease;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.cart-item.removing {
+    opacity: 0;
+    transform: translateX(50px);
 }
 
 .cart-item img {
@@ -388,6 +465,11 @@ main {
     height: 28px;
     cursor: pointer;
     font-weight: bold;
+    transition: transform 0.1s ease;
+}
+
+.cart-item-actions button:active {
+    transform: scale(0.9);
 }
 
 .cart-item-remove {
@@ -429,7 +511,7 @@ main {
     font-size: 1.1rem;
     font-weight: 600;
     cursor: pointer;
-    transition: background-color var(--transition-speed);
+    transition: background-color var(--transition-speed), transform 0.1s ease;
 }
 
 .checkout-button:hover {
@@ -512,6 +594,7 @@ main {
     font-weight: 600;
     width: 100%;
     margin-top: 1rem;
+    transition: transform 0.1s ease;
 }
 .admin-button.secondary {
     background-color: var(--secondary-color);
@@ -528,6 +611,7 @@ main {
 .admin-button:disabled {
     background-color: #a0aec0;
     cursor: not-allowed;
+    transform: scale(1);
 }
 .admin-form-actions {
     display: flex;
@@ -620,7 +704,7 @@ main {
     cursor: pointer;
     font-size: 0.8rem;
     font-weight: 500;
-    transition: all 0.2s ease;
+    transition: all 0.2s ease, transform 0.1s ease;
     flex-shrink: 0;
 }
 
@@ -782,11 +866,22 @@ main {
     border-radius: var(--border-radius);
     cursor: pointer;
     font-weight: 500;
-    transition: all var(--transition-speed);
+    transition: all var(--transition-speed), transform 0.1s ease;
 }
 .footer-admin-link:hover {
     background-color: var(--light-color);
     color: var(--dark-color);
+}
+
+/* Button Active States */
+.category-button:active, 
+.add-to-cart-button:active:not(:disabled), 
+.checkout-button:active, 
+.admin-button:active:not(:disabled), 
+.footer-admin-link:active, 
+.item-list-edit-button:active, 
+.item-list-delete-button:active {
+    transform: scale(0.97);
 }
 
 

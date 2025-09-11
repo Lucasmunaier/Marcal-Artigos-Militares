@@ -41,17 +41,25 @@ const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
 
 // --- COMPONENTES DA UI ---
 
-const Header = ({ onCartClick, cartItemCount, onLogoClick }) => (
+const SkeletonCard = () => (
+    <div className="skeleton-card">
+        <div className="skeleton-image"></div>
+        <div className="skeleton-text"></div>
+        <div className="skeleton-text short"></div>
+    </div>
+);
+
+const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating }) => (
     <header>
         <div className="logo-container" onClick={onLogoClick} style={{cursor: 'pointer'}}>
-            <img src="public/icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
+            <img src="/icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
             <h1>Marçal Artigos Militares</h1>
         </div>
-        <button className="cart-button" onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
+        <button className={`cart-button ${isCartAnimating ? 'bouncing' : ''}`} onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
             <svg className="cart-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l1.838-5.513A1.875 1.875 0 0 0 18.25 6H5.25L4.405 3.56A1.125 1.125 0 0 0 3.322 3H2.25zM7.5 18a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm9 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z" />
             </svg>
-            {cartItemCount > 0 && <span className="cart-count">{cartItemCount}</span>}
+            {cartItemCount > 0 && <span key={cartItemCount} className="cart-count">{cartItemCount}</span>}
         </button>
     </header>
 );
@@ -70,6 +78,7 @@ const ProductDetailModal = ({ product, onClose, onAddToCart }) => {
     const [quantity, setQuantity] = useState(1);
     const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] || '');
     const [customText, setCustomText] = useState('');
+    const [showSuccess, setShowSuccess] = useState(false);
 
     const handleAddToCart = () => {
         if (product.is_customizable && !customText.trim()) {
@@ -81,7 +90,10 @@ const ProductDetailModal = ({ product, onClose, onAddToCart }) => {
             return;
         }
         onAddToCart(product, quantity, selectedSize, customText);
-        onClose();
+        setShowSuccess(true);
+        setTimeout(() => {
+            setShowSuccess(false);
+        }, 1500);
     };
 
     return (
@@ -90,7 +102,6 @@ const ProductDetailModal = ({ product, onClose, onAddToCart }) => {
                 <button className="modal-close-button" onClick={onClose}>&times;</button>
                 <div className="product-detail">
                     <div className="product-detail-images">
-                         {/* TODO: Adicionar um carrossel de imagens aqui */}
                         <img src={product.images[0]} alt={product.name} />
                     </div>
                     <div className="product-detail-info">
@@ -117,7 +128,17 @@ const ProductDetailModal = ({ product, onClose, onAddToCart }) => {
                                 <input id="quantity" type="number" value={quantity} onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value)))} min="1" />
                             </div>
                         </div>
-                        <button className="add-to-cart-button" onClick={handleAddToCart}>Adicionar ao Carrinho</button>
+                        <button 
+                            className={`add-to-cart-button ${showSuccess ? 'success' : ''}`} 
+                            onClick={handleAddToCart} 
+                            disabled={showSuccess}
+                        >
+                            {showSuccess ? (
+                                <>Adicionado! <span className="checkmark">✓</span></>
+                            ) : (
+                                'Adicionar ao Carrinho'
+                            )}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -125,7 +146,7 @@ const ProductDetailModal = ({ product, onClose, onAddToCart }) => {
     );
 };
 
-const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout }) => {
+const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, removingItems }) => {
     const total = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
 
     return (
@@ -140,7 +161,7 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout }
                         <p className="cart-empty">Seu carrinho está vazio.</p>
                     ) : (
                         cart.map(item => (
-                            <div key={item.cartItemId} className="cart-item">
+                            <div key={item.cartItemId} className={`cart-item ${removingItems.includes(item.cartItemId) ? 'removing' : ''}`}>
                                 <img src={item.images[0]} alt={item.name} />
                                 <div className="cart-item-info">
                                     <h4>{item.name}</h4>
@@ -625,6 +646,8 @@ const App = () => {
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [currentView, setCurrentView] = useState('store'); // 'store', 'adminLogin', 'adminDashboard'
+    const [isCartAnimating, setIsCartAnimating] = useState(false);
+    const [removingItems, setRemovingItems] = useState<string[]>([]);
 
     // Efeitos
     useEffect(() => {
@@ -642,7 +665,6 @@ const App = () => {
             if (categoriesError) {
                 console.error('Erro ao buscar categorias:', categoriesError.message);
             } else {
-                // Adiciona a categoria "Todos" que é apenas do front-end
                 setCategories([{ id: 1, name: 'Todos' }, ...(categoriesData || [])]);
             }
             
@@ -653,6 +675,9 @@ const App = () => {
 
     // Handlers
     const handleAddToCart = (product, quantity, selectedSize, customText) => {
+        setIsCartAnimating(true);
+        setTimeout(() => setIsCartAnimating(false), 600);
+
         setCart(prevCart => {
             const sizePart = (product.sizes?.length > 0) ? selectedSize : 'no-size';
             const customPart = product.is_customizable ? customText.trim() : 'no-custom';
@@ -678,7 +703,11 @@ const App = () => {
     };
     
     const handleRemoveFromCart = (cartItemId) => {
-        setCart(cart => cart.filter(item => item.cartItemId !== cartItemId));
+        setRemovingItems(prev => [...prev, cartItemId]);
+        setTimeout(() => {
+            setCart(cart => cart.filter(item => item.cartItemId !== cartItemId));
+            setRemovingItems(prev => prev.filter(id => id !== cartItemId));
+        }, 300);
     };
     
     const handleCheckout = () => {
@@ -711,7 +740,6 @@ const App = () => {
 
     const handleDataChange = (newProducts, newCategories) => {
         setProducts(newProducts);
-        // Garante que a categoria "Todos" não seja duplicada e esteja sempre no início
         const existingCategories = newCategories.filter(c => c.id !== 1);
         setCategories([{id: 1, name: 'Todos'}, ...existingCategories]);
     };
@@ -727,7 +755,7 @@ const App = () => {
 
     // Renderização
     const filteredProducts = useMemo(() => {
-        if (selectedCategory === 1) return products; // 'Todos'
+        if (selectedCategory === 1) return products;
         return products.filter(p => p.category_id === selectedCategory);
     }, [products, selectedCategory]);
 
@@ -743,9 +771,9 @@ const App = () => {
 
     return (
         <>
-            <Header onCartClick={() => setIsCartOpen(true)} cartItemCount={cartItemCount} onLogoClick={navigateToStore} />
+            <Header onCartClick={() => setIsCartOpen(true)} cartItemCount={cartItemCount} onLogoClick={navigateToStore} isCartAnimating={isCartAnimating} />
             <main>
-                <img src="public/Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
+                <img src="/Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
                 <div className="category-filters">
                     {categories.map(cat => (
                         <button
@@ -758,7 +786,11 @@ const App = () => {
                     ))}
                 </div>
 
-                {isLoading ? <p>Carregando produtos...</p> : (
+                {isLoading ? (
+                    <div className="product-grid">
+                        {Array.from({ length: 8 }).map((_, index) => <SkeletonCard key={index} />)}
+                    </div>
+                ) : (
                     <div className="product-grid">
                         {filteredProducts.length > 0 ? filteredProducts.map(product => (
                             <ProductCard key={product.id} product={product} onProductClick={setSelectedProduct} />
@@ -769,7 +801,7 @@ const App = () => {
             <Footer onAdminClick={navigateToAdminLogin} />
 
             {selectedProduct && <ProductDetailModal product={selectedProduct} onClose={() => setSelectedProduct(null)} onAddToCart={handleAddToCart} />}
-            {isCartOpen && <CartModal cart={cart} onClose={() => setIsCartOpen(false)} onUpdateQuantity={handleUpdateCartQuantity} onRemoveItem={handleRemoveFromCart} onCheckout={handleCheckout} />}
+            {isCartOpen && <CartModal cart={cart} onClose={() => setIsCartOpen(false)} onUpdateQuantity={handleUpdateCartQuantity} onRemoveItem={handleRemoveFromCart} onCheckout={handleCheckout} removingItems={removingItems} />}
         </>
     );
 };
