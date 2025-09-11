@@ -52,7 +52,7 @@ const SkeletonCard = () => (
 const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating }) => (
     <header>
         <div className="logo-container" onClick={onLogoClick} style={{cursor: 'pointer'}}>
-            <img src="icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
+            <img src="/icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
             <h1>Marçal Artigos Militares</h1>
         </div>
         <button className={`cart-button ${isCartAnimating ? 'bouncing' : ''}`} onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
@@ -773,7 +773,7 @@ const App = () => {
         <>
             <Header onCartClick={() => setIsCartOpen(true)} cartItemCount={cartItemCount} onLogoClick={navigateToStore} isCartAnimating={isCartAnimating} />
             <main>
-                <img src="Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
+                <img src="/Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
                 <div className="category-filters">
                     {categories.map(cat => (
                         <button
