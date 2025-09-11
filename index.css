@@ -164,6 +164,7 @@ main {
     transition: transform var(--transition-speed) ease, box-shadow var(--transition-speed) ease;
     display: flex;
     flex-direction: column;
+    position: relative;
 }
 
 .product-card:hover {
@@ -195,6 +196,19 @@ main {
     font-weight: 600;
     color: var(--primary-color);
 }
+
+.item-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background-color: var(--success-color);
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
 
 /* Skeleton Loader */
 .skeleton-card {
@@ -397,6 +411,21 @@ main {
     line-height: 1;
 }
 
+.kit-details {
+    margin-bottom: 1rem;
+}
+.kit-details h4 {
+    margin-bottom: 0.5rem;
+}
+.kit-item-list {
+    list-style: disc;
+    padding-left: 20px;
+    margin-bottom: 1rem;
+}
+.kit-item-list li {
+    margin-bottom: 0.3rem;
+}
+
 
 /* Cart Modal */
 .cart-modal {
@@ -535,6 +564,8 @@ main {
     margin-bottom: 2rem;
     padding-bottom: 1.5rem;
     border-bottom: 1px solid #eee;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
 
 .admin-header h2 {
@@ -551,6 +582,9 @@ main {
     font-weight: 500;
     transition: all var(--transition-speed) ease;
     font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 .admin-button-link:hover {
@@ -622,15 +656,36 @@ main {
     margin-top: 0;
 }
 
-
-.admin-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-}
-.admin-lists {
+/* New Admin Menu Layout */
+.admin-menu {
     display: flex;
     flex-direction: column;
+    gap: 1.5rem;
+    max-width: 400px;
+    margin: 2rem auto;
+}
+.admin-menu .admin-button {
+    padding: 1.2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.admin-back-button {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 2rem;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.admin-content-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 2rem;
 }
 
@@ -826,6 +881,25 @@ main {
     height: auto;
 }
 
+.product-checklist {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 1rem;
+    border-radius: var(--border-radius);
+    background-color: white;
+}
+.checklist-item {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.8rem;
+}
+.checklist-item label {
+    margin: 0;
+    font-weight: normal;
+}
+
 
 /* Footer Styles */
 .site-footer {
@@ -887,7 +961,7 @@ main {
 
 /* Responsive Design */
 @media (max-width: 960px) {
-    .admin-columns {
+    .admin-content-grid {
         grid-template-columns: 1fr;
     }
 }
