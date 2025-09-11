@@ -1,10 +1,10 @@
 :root {
-    --primary-color: #007bff;
-    --secondary-color: #6c757d;
-    --success-color: #28a745;
-    --danger-color: #dc3545;
-    --light-color: #f8f9fa;
-    --dark-color: #343a40;
+    --primary-color: #5A6D3B; /* Verde Oliva Principal */
+    --secondary-color: #696969; /* Cinza Escuro */
+    --success-color: #6B8E23; /* Verde Oliva mais claro */
+    --danger-color: #B22222; /* Vermelho Tijolo */
+    --light-color: #F0EFEA; /* Bege claro para o fundo */
+    --dark-color: #3C3C3B; /* Cinza Chumbo para texto */
     --background-color: #ffffff;
     --font-family: 'Poppins', sans-serif;
     --border-radius: 8px;
@@ -138,7 +138,7 @@ main {
 }
 
 .category-button:hover {
-    background-color: #e9ecef;
+    background-color: #e0ddd5;
     border-color: #ccc;
 }
 
@@ -400,7 +400,7 @@ main {
 }
 
 .add-to-cart-button:hover:not(:disabled) {
-    background-color: #0056b3;
+    background-color: #4B5C30; /* Darker olive */
 }
 
 .add-to-cart-button.success {
@@ -544,7 +544,7 @@ main {
 }
 
 .checkout-button:hover {
-    background-color: #218838;
+    background-color: #55701d; /* Darker success green */
 }
 
 /* Admin Styles */
@@ -639,7 +639,7 @@ main {
     width: auto;
 }
 .admin-button.cancel:hover {
-    background-color: #5a6268;
+    background-color: #555555;
 }
 
 .admin-button:disabled {
