@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -11,7 +12,7 @@ interface Product {
     price: number;
     images: string[];
     sizes: string[];
-    category_id: number | null;
+    category_ids: number[];
     is_customizable: boolean;
     custom_text_label: string | null;
 }
@@ -26,8 +27,9 @@ interface Kit {
     name: string;
     description: string;
     price: number;
-    image: string;
+    images: string[];
     products: Product[];
+    category_ids: number[];
 }
 
 type DisplayItem =
@@ -63,6 +65,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ADMIN_PASSWORD = 'admin'; // Senha para o painel de administração
 const WHATSAPP_NUMBER = '5531993925289'; // Número do WhatsApp para receber os pedidos
 const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
+const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+Imagem';
 
 // --- COMPONENTES DA UI ---
 
@@ -89,22 +92,32 @@ const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating }) =>
     </header>
 );
 
-const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => (
-    <div className="product-card" onClick={() => onProductClick(item)}>
-        {item.type === 'kit' && <span className="item-badge">KIT</span>}
-        <img src={item.type === 'product' ? item.data.images[0] : item.data.image} alt={item.data.name} />
-        <div className="product-card-info">
-            <h3>{item.data.name}</h3>
-            <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
+    const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
+    return (
+        <div className="product-card" onClick={() => onProductClick(item)}>
+            {item.type === 'kit' && <span className="item-badge">KIT</span>}
+            <img src={imageUrl} alt={item.data.name} />
+            <div className="product-card-info">
+                <h3>{item.data.name}</h3>
+                <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [quantity, setQuantity] = useState(1);
     const [selectedSize, setSelectedSize] = useState(item.type === 'product' ? item.data.sizes?.[0] || '' : '');
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
+    
+    const images = useMemo(() => (item.type === 'product' ? item.data.images : item.data.images) || [], [item]);
+    const [mainImage, setMainImage] = useState(images[0] || PLACEHOLDER_IMAGE);
+
+    useEffect(() => {
+        setMainImage(images[0] || PLACEHOLDER_IMAGE);
+    }, [images]);
 
     const handleAddToCartClick = () => {
         if (item.type === 'product') {
@@ -157,7 +170,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
             <div className="kit-details">
                 <h4>Itens Inclusos no Kit:</h4>
                 <ul className="kit-item-list">
-                    {kit.products.map(p => <li key={p.id}>{p.name}</li>)}
+                    {(kit.products || []).map(p => <li key={p.id}>{p.name}</li>)}
                 </ul>
                  <div className="product-controls">
                     <div className="form-group">
@@ -175,7 +188,20 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                 <button className="modal-close-button" onClick={onClose}>&times;</button>
                 <div className="product-detail">
                     <div className="product-detail-images">
-                        <img src={item.type === 'product' ? item.data.images[0] : item.data.image} alt={item.data.name} />
+                        <img src={mainImage} alt={item.data.name} className="main-image" />
+                        {images.length > 1 && (
+                            <div className="thumbnail-gallery">
+                                {images.map((img, index) => (
+                                    <img 
+                                        key={index}
+                                        src={img}
+                                        alt={`Thumbnail ${index + 1}`}
+                                        className={mainImage === img ? 'active' : ''}
+                                        onClick={() => setMainImage(img)}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
@@ -214,23 +240,26 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                     {cart.length === 0 ? (
                         <p className="cart-empty">Seu carrinho está vazio.</p>
                     ) : (
-                        cart.map(item => (
-                            <div key={item.cartItemId} className={`cart-item ${removingItems.includes(item.cartItemId) ? 'removing' : ''}`}>
-                                <img src={item.type === 'product' ? item.data.images[0] : item.data.image} alt={item.data.name} />
-                                <div className="cart-item-info">
-                                    <h4>{item.data.name} {item.type === 'kit' && '(Kit)'}</h4>
-                                    {item.type === 'product' && item.selectedSize && item.data.sizes?.length > 0 && <p>Tamanho: {item.selectedSize}</p>}
-                                    {item.type === 'product' && item.data.is_customizable && item.customText && <p>{item.data.custom_text_label || 'Personalização'}: "{item.customText}"</p>}
-                                    <p>R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                        cart.map(item => {
+                            const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
+                            return (
+                                <div key={item.cartItemId} className={`cart-item ${removingItems.includes(item.cartItemId) ? 'removing' : ''}`}>
+                                    <img src={imageUrl} alt={item.data.name} />
+                                    <div className="cart-item-info">
+                                        <h4>{item.data.name} {item.type === 'kit' && '(Kit)'}</h4>
+                                        {item.type === 'product' && item.selectedSize && item.data.sizes?.length > 0 && <p>Tamanho: {item.selectedSize}</p>}
+                                        {item.type === 'product' && item.data.is_customizable && item.customText && <p>{item.data.custom_text_label || 'Personalização'}: "{item.customText}"</p>}
+                                        <p>R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                                    </div>
+                                    <div className="cart-item-actions">
+                                        <button onClick={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}>-</button>
+                                        <span>{item.quantity}</span>
+                                        <button onClick={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}>+</button>
+                                        <button className="cart-item-remove" onClick={() => onRemoveItem(item.cartItemId)}>&times;</button>
+                                    </div>
                                 </div>
-                                <div className="cart-item-actions">
-                                    <button onClick={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}>-</button>
-                                    <span>{item.quantity}</span>
-                                    <button onClick={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}>+</button>
-                                    <button className="cart-item-remove" onClick={() => onRemoveItem(item.cartItemId)}>&times;</button>
-                                </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
                 {cart.length > 0 && (
@@ -303,33 +332,41 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [isSubmittingKit, setIsSubmittingKit] = useState(false);
     const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
     
+    // Drag and Drop
+    const [draggedItem, setDraggedItem] = useState<{ list: 'product' | 'kit', index: number } | null>(null);
+
     // Formulário de produto
-    const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_id: '', sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
+    const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
     const [imageFiles, setImageFiles] = useState<File[]>([]);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [existingImages, setExistingImages] = useState<string[]>([]);
     
     // Formulário de Kit
-    const [kitForm, setKitForm] = useState({ name: '', description: '', price: '' });
-    const [kitImageFile, setKitImageFile] = useState<File | null>(null);
-    const [kitImagePreview, setKitImagePreview] = useState<string | null>(null);
+    const [kitForm, setKitForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[] });
+    const [kitImageFiles, setKitImageFiles] = useState<File[]>([]);
+    const [kitImagePreviews, setKitImagePreviews] = useState<string[]>([]);
+    const [kitExistingImages, setKitExistingImages] = useState<string[]>([]);
     const [selectedKitProducts, setSelectedKitProducts] = useState<Set<number>>(new Set());
+    const [kitProductSearch, setKitProductSearch] = useState('');
 
 
     useEffect(() => {
         if (editingProduct) {
+            const safeSizes = editingProduct.sizes || [];
+            const safeImages = editingProduct.images || [];
+            const safeCategoryIds = editingProduct.category_ids || [];
             setProductForm({
                 name: editingProduct.name,
                 description: editingProduct.description,
                 price: editingProduct.price.toString(),
-                category_id: editingProduct.category_id?.toString() || '',
-                sizes: editingProduct.sizes.join(', '),
-                has_sizes: editingProduct.sizes.length > 0,
+                category_ids: safeCategoryIds,
+                sizes: safeSizes.join(', '),
+                has_sizes: safeSizes.length > 0,
                 is_customizable: editingProduct.is_customizable,
                 custom_text_label: editingProduct.custom_text_label || 'Nome',
             });
-            setExistingImages(editingProduct.images);
-            setImagePreviews(editingProduct.images);
+            setExistingImages(safeImages);
+            setImagePreviews(safeImages);
             setImageFiles([]);
             setActiveView('products');
         } else {
@@ -339,22 +376,42 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
 
     useEffect(() => {
         if (editingKit) {
+            const safeImages = editingKit.images || [];
+            const safeProducts = editingKit.products || [];
+            const safeCategoryIds = editingKit.category_ids || [];
             setKitForm({
                 name: editingKit.name,
                 description: editingKit.description,
                 price: editingKit.price.toString(),
+                category_ids: safeCategoryIds,
             });
-            setKitImagePreview(editingKit.image);
-            setSelectedKitProducts(new Set(editingKit.products.map(p => p.id)));
-            setKitImageFile(null);
+            setKitImagePreviews(safeImages);
+            setKitExistingImages(safeImages);
+            setSelectedKitProducts(new Set(safeProducts.map(p => p.id)));
+            setKitImageFiles([]);
             setActiveView('kits');
         } else {
             resetKitForm();
         }
     }, [editingKit]);
 
+    useEffect(() => {
+        if (products.length > 0 && activeView === 'kits') {
+            const productImages = products
+                .filter(p => selectedKitProducts.has(p.id))
+                .map(p => p.images?.[0])
+                .filter(Boolean);
+    
+            setKitImagePreviews(prev => {
+                const currentImages = new Set(prev);
+                const newImages = productImages.filter(img => !currentImages.has(img as string));
+                return [...prev, ...newImages as string[]];
+            });
+        }
+    }, [selectedKitProducts, products, activeView]);
+
     const resetProductForm = () => {
-        setProductForm({ name: '', description: '', price: '', category_id: '', sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
+        setProductForm({ name: '', description: '', price: '', category_ids: [], sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
         imagePreviews.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
         setImageFiles([]);
         setImagePreviews([]);
@@ -363,11 +420,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     };
 
     const resetKitForm = () => {
-        setKitForm({ name: '', description: '', price: '' });
-        if (kitImagePreview && kitImagePreview.startsWith('blob:')) URL.revokeObjectURL(kitImagePreview);
-        setKitImageFile(null);
-        setKitImagePreview(null);
+        setKitForm({ name: '', description: '', price: '', category_ids: [] });
+        kitImagePreviews.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
+        setKitImageFiles([]);
+        setKitImagePreviews([]);
+        setKitExistingImages([]);
         setSelectedKitProducts(new Set());
+        setKitProductSearch('');
         setEditingKit(null);
     };
 
@@ -381,39 +440,86 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         }
     };
 
-    const handleKitFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const handleKitFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setKitForm(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleCategoryChange = (categoryId: number, formType: 'product' | 'kit') => {
+        const formSetter = formType === 'product' ? setProductForm : setKitForm;
+    
+        formSetter(prev => {
+            const currentIds = new Set(prev.category_ids || []);
+            if (currentIds.has(categoryId)) {
+                currentIds.delete(categoryId);
+            } else {
+                currentIds.add(categoryId);
+            }
+            return { ...prev, category_ids: Array.from(currentIds) };
+        });
+    };
+
+    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>, isKit: boolean) => {
         if (e.target.files) {
             const files = Array.from(e.target.files);
-            setImageFiles(prev => [...prev, ...files]);
             const newPreviews = files.map(file => URL.createObjectURL(file));
-            setImagePreviews(prev => [...prev, ...newPreviews]);
+
+            if (isKit) {
+                setKitImageFiles(prev => [...prev, ...files]);
+                setKitImagePreviews(prev => [...prev, ...newPreviews]);
+            } else {
+                setImageFiles(prev => [...prev, ...files]);
+                setImagePreviews(prev => [...prev, ...newPreviews]);
+            }
         }
     };
     
-    const handleKitImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            setKitImageFile(file);
-            if (kitImagePreview && kitImagePreview.startsWith('blob:')) URL.revokeObjectURL(kitImagePreview);
-            setKitImagePreview(URL.createObjectURL(file));
+    const removeImage = (index: number, isKit: boolean) => {
+        const previews = isKit ? kitImagePreviews : imagePreviews;
+        const setPreviews = isKit ? setKitImagePreviews : setImagePreviews;
+        const setFiles = isKit ? setKitImageFiles : setImageFiles;
+        const existing = isKit ? kitExistingImages : existingImages;
+        const setExisting = isKit ? setKitExistingImages : setExistingImages;
+
+        const urlToRemove = previews[index];
+        
+        if (urlToRemove.startsWith('blob:')) {
+            const blobPreviews = previews.filter(p => p.startsWith('blob:'));
+            const fileIndex = blobPreviews.indexOf(urlToRemove);
+            if (fileIndex > -1) {
+                setFiles(prev => prev.filter((_, i) => i !== fileIndex));
+            }
+            URL.revokeObjectURL(urlToRemove);
+        } else {
+            setExisting(prev => prev.filter(img => img !== urlToRemove));
         }
+        
+        setPreviews(prev => prev.filter((_, i) => i !== index));
     };
 
-    const removeImage = (index: number, isExisting: boolean) => {
-        const urlToRemove = imagePreviews[index];
-        if (isExisting) {
-            setExistingImages(prev => prev.filter(img => img !== urlToRemove));
-        } else {
-            const fileIndex = imagePreviews.slice(0, index).filter(p => !existingImages.includes(p)).length;
-            setImageFiles(prev => prev.filter((_, i) => i !== fileIndex));
-        }
-        if (urlToRemove.startsWith('blob:')) URL.revokeObjectURL(urlToRemove);
-        setImagePreviews(prev => prev.filter((_, i) => i !== index));
+    const handleDragStart = (index: number, list: 'product' | 'kit') => {
+        setDraggedItem({ list, index });
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+    };
+
+    const handleDrop = (index: number, list: 'product' | 'kit') => {
+        if (!draggedItem || draggedItem.list !== list) return;
+
+        const setter = list === 'product' ? setImagePreviews : setKitImagePreviews;
+        
+        setter(currentItems => {
+            const newItems = [...currentItems];
+            const [dragged] = newItems.splice(draggedItem.index, 1);
+            newItems.splice(index, 0, dragged);
+            return newItems;
+        });
+    };
+
+    const handleDragEnd = () => {
+        setDraggedItem(null);
     };
 
     const handleKitProductToggle = (productId: number) => {
@@ -448,9 +554,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     };
     
     const handleDeleteCategory = async (categoryId: number) => {
-        const isCategoryInUse = products.some(p => p.category_id === categoryId);
-        if (isCategoryInUse) {
-            alert('Não é possível excluir esta categoria, pois ela está sendo usada por um ou mais produtos.');
+        const isCategoryInUseByProduct = products.some(p => (p.category_ids || []).includes(categoryId));
+        const isCategoryInUseByKit = kits.some(k => (k.category_ids || []).includes(categoryId));
+        if (isCategoryInUseByProduct || isCategoryInUseByKit) {
+            alert('Não é possível excluir esta categoria, pois ela está sendo usada por um ou mais produtos ou kits.');
             return;
         }
         if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
@@ -516,14 +623,21 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         }
 
         if (editingProduct) {
-            const imagesToRemove = editingProduct.images.filter(img => !existingImages.includes(img));
+            const imagesToRemove = (editingProduct.images || []).filter(img => !existingImages.includes(img));
             if (imagesToRemove.length > 0) {
                 const imagePaths = imagesToRemove.map(url => new URL(url).pathname.split('/product-images/')[1]);
                 await supabase.storage.from('product-images').remove(imagePaths);
             }
         }
         
-        const finalImageUrls = [...existingImages, ...uploadedImageUrls];
+        const blobPreviews = imagePreviews.filter(url => url.startsWith('blob:'));
+        const finalImageUrls = imagePreviews.map(url => {
+            if (url.startsWith('blob:')) {
+                const index = blobPreviews.indexOf(url);
+                return uploadedImageUrls[index];
+            }
+            return url;
+        });
 
         const productData = {
             name: productForm.name,
@@ -531,40 +645,49 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             price: parseFloat(productForm.price),
             images: finalImageUrls,
             sizes: productForm.has_sizes ? productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [],
-            category_id: productForm.category_id ? parseInt(productForm.category_id, 10) : null,
             is_customizable: productForm.is_customizable,
             custom_text_label: productForm.is_customizable ? productForm.custom_text_label : null,
+            category_ids: productForm.category_ids || [],
         };
 
+        let savedProduct;
         if (editingProduct) {
-            const { data: updatedProduct, error } = await supabase.from('products').update(productData).eq('id', editingProduct.id).select().single();
-            if (error) {
-                alert('Erro ao atualizar produto: ' + error.message);
-            } else {
-                const newProducts = products.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-                setProducts(newProducts);
-                onDataChange(newProducts, categories, kits);
-                resetProductForm();
-            }
+            const { data, error } = await supabase.from('products').update(productData).eq('id', editingProduct.id).select().single();
+            if (error) { alert('Erro ao atualizar produto: ' + error.message); setIsSubmittingProduct(false); return; }
+            savedProduct = data;
         } else {
-            const { data: addedProduct, error } = await supabase.from('products').insert(productData).select().single();
-            if (error) {
-                alert('Erro ao adicionar produto: ' + error.message);
-            } else {
-                const newProducts = [...products, addedProduct];
-                setProducts(newProducts);
-                onDataChange(newProducts, categories, kits);
-                resetProductForm();
-            }
+            const { data, error } = await supabase.from('products').insert(productData).select().single();
+            if (error) { alert('Erro ao adicionar produto: ' + error.message); setIsSubmittingProduct(false); return; }
+            savedProduct = data;
         }
+        
+        const finalProduct = { ...savedProduct, category_ids: savedProduct.category_ids || [] };
+        
+        let newProducts;
+        if (editingProduct) {
+            newProducts = products.map(p => p.id === finalProduct.id ? finalProduct : p);
+        } else {
+            newProducts = [...products, finalProduct];
+        }
+        setProducts(newProducts);
+        onDataChange(newProducts, categories, kits);
+        resetProductForm();
         setIsSubmittingProduct(false);
     };
 
     const handleDeleteProduct = async (productId: number) => {
+        const isProductInKit = kits.some(kit => (kit.products || []).some(p => p.id === productId));
+        if (isProductInKit) {
+            alert('Este produto não pode ser excluído, pois faz parte de um ou mais kits. Por favor, remova-o dos kits primeiro.');
+            return;
+        }
+
         const productToDelete = products.find(p => p.id === productId);
         if (!productToDelete) return;
+        
         if (window.confirm('Tem certeza que deseja excluir este produto?')) {
             setDeletingItemId(`prod-${productId}`);
+            
             if (productToDelete.images?.length > 0) {
                 const imagePaths = productToDelete.images.map(url => new URL(url).pathname.split('/product-images/')[1]);
                 await supabase.storage.from('product-images').remove(imagePaths);
@@ -583,33 +706,51 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
 
     const handleKitFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (!kitImageFile && !editingKit?.image) {
-            alert('Por favor, adicione uma imagem para o kit.');
+        if (kitImagePreviews.length === 0) {
+            alert('Por favor, adicione pelo menos uma imagem para o kit.');
             return;
         }
         setIsSubmittingKit(true);
 
-        let imageUrl = editingKit?.image || '';
-        if (kitImageFile) {
-            if (editingKit?.image) { // Remove old image if a new one is uploaded
-                const oldPath = new URL(editingKit.image).pathname.split('/product-images/')[1];
-                await supabase.storage.from('product-images').remove([oldPath]);
-            }
-            const filePath = `public/kit-${Date.now()}-${kitImageFile.name.replace(/\s/g, '_')}`;
-            const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, kitImageFile);
+        const uploadedImageUrls: string[] = [];
+        for (const file of kitImageFiles) {
+            const filePath = `public/kit-${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+            const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
             if (uploadError) {
                 alert('Erro ao fazer upload da imagem do kit: ' + uploadError.message);
                 setIsSubmittingKit(false); return;
             }
             const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-            imageUrl = data.publicUrl;
+            uploadedImageUrls.push(data.publicUrl);
         }
+
+        if (editingKit) {
+            const imagesToRemove = (editingKit.images || []).filter(img => !kitExistingImages.includes(img));
+            if (imagesToRemove.length > 0) {
+                const imagePaths = imagesToRemove.map(url => new URL(url).pathname.split('/product-images/')[1]);
+                await supabase.storage.from('product-images').remove(imagePaths);
+            }
+        }
+
+        const blobPreviews = kitImagePreviews.filter(url => url.startsWith('blob:'));
+        const finalImageUrls = kitImagePreviews.map(url => {
+            if (url.startsWith('blob:')) {
+                const index = blobPreviews.indexOf(url);
+                return uploadedImageUrls[index];
+            }
+            return url;
+        });
+
+        const descriptionPayload = JSON.stringify({
+            text: kitForm.description,
+            images: finalImageUrls,
+            categoryIds: kitForm.category_ids || [],
+        });
 
         const kitData = {
             name: kitForm.name,
-            description: kitForm.description,
+            description: descriptionPayload,
             price: parseFloat(kitForm.price),
-            image: imageUrl,
         };
 
         const productAssociations = Array.from(selectedKitProducts);
@@ -622,7 +763,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                 const kitProductInserts = productAssociations.map(pid => ({ kit_id: updatedKit.id, product_id: pid }));
                 await supabase.from('kit_products').insert(kitProductInserts);
 
-                const updatedKitWithProducts = { ...updatedKit, products: products.filter(p => productAssociations.includes(p.id))};
+                const updatedKitWithProducts: Kit = { 
+                    ...updatedKit, 
+                    description: kitForm.description, 
+                    images: finalImageUrls, 
+                    products: products.filter(p => productAssociations.includes(p.id)),
+                    category_ids: kitForm.category_ids || [],
+                };
                 const newKits = kits.map(k => k.id === updatedKit.id ? updatedKitWithProducts : k);
                 setKits(newKits);
                 onDataChange(products, categories, newKits);
@@ -635,7 +782,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                 const kitProductInserts = productAssociations.map(pid => ({ kit_id: addedKit.id, product_id: pid }));
                 await supabase.from('kit_products').insert(kitProductInserts);
 
-                const addedKitWithProducts = { ...addedKit, products: products.filter(p => productAssociations.includes(p.id))};
+                const addedKitWithProducts: Kit = { 
+                    ...addedKit, 
+                    description: kitForm.description,
+                    images: finalImageUrls,
+                    products: products.filter(p => productAssociations.includes(p.id)),
+                    category_ids: kitForm.category_ids || [],
+                };
                 const newKits = [...kits, addedKitWithProducts];
                 setKits(newKits);
                 onDataChange(products, categories, newKits);
@@ -651,9 +804,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
 
         if (window.confirm('Tem certeza que deseja excluir este kit?')) {
             setDeletingItemId(`kit-${kitId}`);
-            if (kitToDelete.image) {
-                const imagePath = new URL(kitToDelete.image).pathname.split('/product-images/')[1];
-                await supabase.storage.from('product-images').remove([imagePath]);
+
+            const { error: assocError } = await supabase.from('kit_products').delete().eq('kit_id', kitId);
+            if (assocError) {
+                alert('Erro ao remover as associações do kit: ' + assocError.message);
+                setDeletingItemId(null);
+                return;
+            }
+
+            if (kitToDelete.images && kitToDelete.images.length > 0) {
+                const imagePaths = kitToDelete.images.map(url => new URL(url).pathname.split('/product-images/')[1]);
+                await supabase.storage.from('product-images').remove(imagePaths);
             }
 
             const { error } = await supabase.from('kits').delete().eq('id', kitId);
@@ -695,13 +856,22 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         
                         <div className="form-group">
                             <label htmlFor="productImages">Imagens do Produto</label>
-                            <input type="file" id="productImages" multiple accept="image/*" onChange={handleImageSelect} />
+                            <input type="file" id="productImages" multiple accept="image/*" onChange={(e) => handleImageSelect(e, false)} />
                         </div>
                         <div className="image-previews">
                             {imagePreviews.map((src, index) => (
-                                <div key={src + index} className="image-preview-item">
+                                <div 
+                                    key={src + index} 
+                                    className={`image-preview-item ${draggedItem?.list === 'product' && draggedItem.index === index ? 'dragging' : ''}`}
+                                    draggable
+                                    onDragStart={() => handleDragStart(index, 'product')}
+                                    onDragOver={handleDragOver}
+                                    onDrop={() => handleDrop(index, 'product')}
+                                    onDragEnd={handleDragEnd}
+                                >
+                                    <span className="image-order-badge">{index + 1}</span>
                                     <img src={src} alt={`Preview ${index + 1}`} />
-                                    <button type="button" onClick={() => removeImage(index, existingImages.includes(src))} aria-label="Remover imagem">&times;</button>
+                                    <button type="button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
                                 </div>
                             ))}
                         </div>
@@ -729,12 +899,22 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         )}
                         
                         <div className="form-group">
-                            <label htmlFor="productCategory">Categoria</label>
-                            <select id="productCategory" name="category_id" value={productForm.category_id} onChange={handleFormChange}>
-                                <option value="">Nenhuma Categoria</option>
-                                {categoriesWithoutAll.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                            </select>
+                            <label>Categorias</label>
+                            <div className="category-checklist-container">
+                                {categoriesWithoutAll.map(cat => (
+                                    <div key={cat.id} className="category-checklist-item">
+                                        <input
+                                            type="checkbox"
+                                            id={`product-cat-${cat.id}`}
+                                            checked={(productForm.category_ids || []).includes(cat.id)}
+                                            onChange={() => handleCategoryChange(cat.id, 'product')}
+                                        />
+                                        <label htmlFor={`product-cat-${cat.id}`}>{cat.name}</label>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
+
                         <div className="admin-form-actions">
                             <button type="submit" className="admin-button" disabled={isSubmittingProduct}>
                                 {isSubmittingProduct ? 'Salvando...' : (editingProduct ? 'Salvar Alterações' : 'Adicionar Produto')}
@@ -751,19 +931,22 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                             <p className="empty-list-message">Nenhum produto cadastrado.</p>
                         ) : (
                             <ul className="item-list product-list">
-                                {products.map(product => (
-                                    <li key={product.id}>
-                                        <img src={product.images[0]} alt={product.name} className="item-list-img" />
-                                        <span>{product.name}</span>
-                                        <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
-                                        <div className="item-list-actions">
-                                            <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
-                                            <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
-                                                {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
-                                            </button>
-                                        </div>
-                                    </li>
-                                ))}
+                                {products.map(product => {
+                                    const imageUrl = (product.images && product.images.length > 0) ? product.images[0] : PLACEHOLDER_IMAGE;
+                                    return (
+                                        <li key={product.id}>
+                                            <img src={imageUrl} alt={product.name} className="item-list-img" />
+                                            <span>{product.name}</span>
+                                            <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
+                                            <div className="item-list-actions">
+                                                <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
+                                                <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
+                                                    {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
+                                                </button>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
                             </ul>
                         )}
                     </section>
@@ -826,7 +1009,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         </div>
     );
 
-    const renderKitsView = () => (
+    const renderKitsView = () => {
+        const filteredKitProducts = products.filter(p => p.name.toLowerCase().includes(kitProductSearch.toLowerCase()));
+
+        return (
         <div className="admin-view">
             <button onClick={() => setActiveView('menu')} className="admin-back-button">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
@@ -843,27 +1029,69 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         <div className="form-group"><label htmlFor="kitPrice">Preço do Kit</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
                         
                         <div className="form-group">
-                            <label htmlFor="kitImage">Imagem do Kit</label>
-                            <input type="file" id="kitImage" accept="image/*" onChange={handleKitImageSelect} />
-                        </div>
-                        {kitImagePreview && (
-                            <div className="image-previews">
-                                <div className="image-preview-item">
-                                    <img src={kitImagePreview} alt="Preview do Kit" />
-                                </div>
+                            <label>Categorias</label>
+                            <div className="category-checklist-container">
+                                {categoriesWithoutAll.map(cat => (
+                                    <div key={cat.id} className="category-checklist-item">
+                                        <input
+                                            type="checkbox"
+                                            id={`kit-cat-${cat.id}`}
+                                            checked={(kitForm.category_ids || []).includes(cat.id)}
+                                            onChange={() => handleCategoryChange(cat.id, 'kit')}
+                                        />
+                                        <label htmlFor={`kit-cat-${cat.id}`}>{cat.name}</label>
+                                    </div>
+                                ))}
                             </div>
-                        )}
+                        </div>
+                        
+                        <div className="form-group">
+                            <label htmlFor="kitImage">Imagens do Kit (a primeira será a principal)</label>
+                            <input type="file" id="kitImage" multiple accept="image/*" onChange={(e) => handleImageSelect(e, true)} />
+                        </div>
+                        <div className="image-previews">
+                           {kitImagePreviews.map((src, index) => (
+                                <div
+                                    key={src + index}
+                                    className={`image-preview-item ${draggedItem?.list === 'kit' && draggedItem.index === index ? 'dragging' : ''}`}
+                                    draggable
+                                    onDragStart={() => handleDragStart(index, 'kit')}
+                                    onDragOver={handleDragOver}
+                                    onDrop={() => handleDrop(index, 'kit')}
+                                    onDragEnd={handleDragEnd}
+                                >
+                                    <span className="image-order-badge">{index + 1}</span>
+                                    <img src={src} alt={`Preview ${index + 1}`} />
+                                    <button type="button" onClick={() => removeImage(index, true)} aria-label="Remover imagem">&times;</button>
+                                </div>
+                            ))}
+                        </div>
 
                         <div className="form-group">
                             <label>Produtos para incluir no Kit</label>
-                            <div className="product-checklist">
-                                {products.length > 0 ? products.map(p => (
-                                    <div key={p.id} className="checklist-item">
-                                        <input type="checkbox" id={`kit-prod-${p.id}`} checked={selectedKitProducts.has(p.id)} onChange={() => handleKitProductToggle(p.id)} />
-                                        <label htmlFor={`kit-prod-${p.id}`}>{p.name}</label>
-                                    </div>
-                                )) : <p>Nenhum produto cadastrado para adicionar.</p>}
+                            <input
+                                type="text"
+                                placeholder="Buscar produtos..."
+                                className="product-search-input"
+                                value={kitProductSearch}
+                                onChange={(e) => setKitProductSearch(e.target.value)}
+                            />
+                            <div className="product-selection-grid">
+                                {filteredKitProducts.length > 0 ? filteredKitProducts.map(p => {
+                                    const imageUrl = (p.images && p.images.length > 0) ? p.images[0] : PLACEHOLDER_IMAGE;
+                                    return (
+                                        <div 
+                                            key={p.id} 
+                                            className={`product-selection-item ${selectedKitProducts.has(p.id) ? 'selected' : ''}`}
+                                            onClick={() => handleKitProductToggle(p.id)}
+                                        >
+                                            <img src={imageUrl} alt={p.name} />
+                                            <span>{p.name}</span>
+                                        </div>
+                                    )
+                                }) : <p className="empty-list-message">Nenhum produto encontrado.</p>}
                             </div>
+                            <small>As imagens dos produtos selecionados serão adicionadas automaticamente ao kit.</small>
                         </div>
 
                         <div className="admin-form-actions">
@@ -882,25 +1110,29 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         <p className="empty-list-message">Nenhum kit cadastrado.</p>
                     ) : (
                          <ul className="item-list product-list">
-                            {kits.map(kit => (
-                                <li key={kit.id}>
-                                    <img src={kit.image} alt={kit.name} className="item-list-img" />
-                                    <span>{kit.name}</span>
-                                    <span className="item-list-price">R$ {kit.price.toFixed(2).replace('.',',')}</span>
-                                    <div className="item-list-actions">
-                                        <button onClick={() => setEditingKit(kit)} className="item-list-edit-button">Editar</button>
-                                        <button onClick={() => handleDeleteKit(kit.id)} className="item-list-delete-button" disabled={deletingItemId === `kit-${kit.id}`} aria-label={`Excluir kit ${kit.name}`}>
-                                            {deletingItemId === `kit-${kit.id}` ? '...' : 'Excluir'}
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
+                            {kits.map(kit => {
+                                const imageUrl = (kit.images && kit.images.length > 0) ? kit.images[0] : PLACEHOLDER_IMAGE;
+                                return (
+                                    <li key={kit.id}>
+                                        <img src={imageUrl} alt={kit.name} className="item-list-img" />
+                                        <span>{kit.name}</span>
+                                        <span className="item-list-price">R$ {kit.price.toFixed(2).replace('.',',')}</span>
+                                        <div className="item-list-actions">
+                                            <button onClick={() => setEditingKit(kit)} className="item-list-edit-button">Editar</button>
+                                            <button onClick={() => handleDeleteKit(kit.id)} className="item-list-delete-button" disabled={deletingItemId === `kit-${kit.id}`} aria-label={`Excluir kit ${kit.name}`}>
+                                                {deletingItemId === `kit-${kit.id}` ? '...' : 'Excluir'}
+                                            </button>
+                                        </div>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     )}
                 </section>
             </div>
         </div>
-    );
+        );
+    };
 
 
     return (
@@ -961,33 +1193,58 @@ const App = () => {
         const fetchData = async () => {
             setIsLoading(true);
 
+            // Fetch primary data
             const { data: productsData, error: productsError } = await supabase.from('products').select('*');
-            if (productsError) {
-                console.error('Erro ao buscar produtos:', productsError.message);
-            }
-            const localProducts = productsData || [];
-            setProducts(localProducts);
-
+            if (productsError) console.error('Erro ao buscar produtos:', productsError.message);
+            
             const { data: categoriesData, error: categoriesError } = await supabase.from('categories').select('*');
-            if (categoriesError) {
-                console.error('Erro ao buscar categorias:', categoriesError.message);
-            } else {
-                setCategories([{ id: 1, name: 'Todos' }, ...(categoriesData || [])]);
-            }
+            if (categoriesError) console.error('Erro ao buscar categorias:', categoriesError.message);
+            else setCategories([{ id: 1, name: 'Todos' }, ...(categoriesData || [])]);
             
             const { data: kitsData, error: kitsError } = await supabase.from('kits').select('*');
-            if(kitsError) { console.error('Erro ao buscar kits:', kitsError.message); }
+            if(kitsError) console.error('Erro ao buscar kits:', kitsError.message);
 
+            // Fetch association data
             const { data: kitProductsData, error: kitProductsError } = await supabase.from('kit_products').select('*');
-            if(kitProductsError) { console.error('Erro ao buscar produtos dos kits:', kitProductsError.message); }
+            if(kitProductsError) console.error('Erro ao buscar produtos dos kits:', kitProductsError.message);
 
+            // Process products with their categories - now directly from the products table
+            const localProducts: Product[] = (productsData || []).map(p => ({
+                ...p,
+                category_ids: p.category_ids || []
+            }));
+            setProducts(localProducts);
+
+            // Process kits
             if (kitsData && localProducts && kitProductsData) {
-                const kitsWithProducts: Kit[] = kitsData.map(kit => {
+                 const kitsWithProducts: Kit[] = kitsData.map(kit => {
+                    let parsedDescription = kit.description;
+                    let parsedImages: string[] = [];
+                    let parsedCategoryIds: number[] = [];
+
+                    try {
+                        const parsed = JSON.parse(kit.description);
+                        parsedDescription = parsed.text || kit.description;
+                        parsedImages = parsed.images || [];
+                        parsedCategoryIds = parsed.categoryIds || [];
+                    } catch (e) {
+                        // It's a plain string, use defaults
+                    }
+                    
                     const productIds = kitProductsData.filter(kp => kp.kit_id === kit.id).map(kp => kp.product_id);
                     const kitProducts = localProducts.filter(p => productIds.includes(p.id));
-                    return { ...kit, products: kitProducts };
+
+                    return {
+                        ...kit,
+                        description: parsedDescription,
+                        images: parsedImages,
+                        products: kitProducts,
+                        category_ids: parsedCategoryIds,
+                    };
                 });
                 setKits(kitsWithProducts);
+            } else if (kitsData) {
+                setKits(kitsData.map(k => ({...k, products: [], images: [], category_ids: [] })));
             }
             
             setIsLoading(false);
@@ -1120,8 +1377,7 @@ const App = () => {
 
     const filteredDisplayItems = useMemo(() => {
         if (selectedCategory === 1) return displayItems;
-        // Kits do not have categories, so they are only shown in "Todos"
-        return displayItems.filter(item => item.type === 'product' && item.data.category_id === selectedCategory);
+        return displayItems.filter(item => (item.data.category_ids || []).includes(selectedCategory));
     }, [displayItems, selectedCategory]);
 
     const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
