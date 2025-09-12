@@ -863,7 +863,7 @@ main {
 }
 
 
-.product-list li {
+.product-list li, .stock-list li {
     justify-content: flex-start;
     gap: 1rem;
 }
@@ -1219,40 +1219,44 @@ main {
 .admin-button:active:not(:disabled), 
 .footer-admin-link:active, 
 .item-list-edit-button:active, 
-.item-list-delete-button:active {
+.item-list-delete-button:active,
+.stock-update-button:active:not(:disabled) {
     transform: scale(0.97);
 }
 
 
 /* Admin Stock Management */
-.stock-list li {
-    justify-content: flex-start;
-}
-
 .stock-controls {
     display: flex;
     align-items: center;
     gap: 0.8rem;
-    margin-left: auto;
+    margin-top: 0.5rem;
+}
+
+.stock-controls label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--secondary-color);
 }
 
 .stock-input {
-    width: 80px;
-    padding: 0.5rem;
+    width: 70px;
+    padding: 0.4rem;
     border: 1px solid #ccc;
-    border-radius: var(--border-radius);
+    border-radius: 5px;
     text-align: center;
-    font-size: 1rem;
+    font-size: 0.9rem;
 }
 
 .stock-update-button {
     background-color: var(--success-color);
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
-    border-radius: var(--border-radius);
+    padding: 0.4rem 0.8rem;
+    border-radius: 5px;
     cursor: pointer;
     font-weight: 500;
+    font-size: 0.8rem;
     transition: all 0.2s ease, transform 0.1s ease;
 }
 .stock-update-button:hover:not(:disabled) {

@@ -1280,25 +1280,28 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         {products.map(product => {
                              const imageUrl = (product.images && product.images.length > 0) ? product.images[0] : PLACEHOLDER_IMAGE;
                             return (
-                            <li key={product.id}>
-                                 <img src={imageUrl} alt={product.name} className="item-list-img" />
-                                <span className="item-list-name">{product.name}</span>
-                                <div className="stock-controls">
-                                    <label htmlFor={`stock-${product.id}`} className="sr-only">Estoque para {product.name}</label>
-                                    <input
-                                        id={`stock-${product.id}`}
-                                        type="number"
-                                        min="0"
-                                        value={stockLevels[product.id] || '0'}
-                                        onChange={(e) => handleStockChange(product.id, e.target.value)}
-                                        className="stock-input"
-                                    />
-                                    <button onClick={() => handleUpdateStock(product.id)} className="stock-update-button" disabled={updatingStockId === product.id}>
-                                        {updatingStockId === product.id ? 'Salvando...' : 'Salvar'}
-                                    </button>
-                                </div>
-                            </li>
-                        )})}
+                                <li key={product.id}>
+                                    <img src={imageUrl} alt={product.name} className="item-list-img" />
+                                    <div className="item-list-details">
+                                        <span className="item-list-name">{product.name}</span>
+                                        <div className="stock-controls">
+                                            <label htmlFor={`stock-${product.id}`}>Estoque:</label>
+                                            <input
+                                                id={`stock-${product.id}`}
+                                                type="number"
+                                                min="0"
+                                                value={stockLevels[product.id] || '0'}
+                                                onChange={(e) => handleStockChange(product.id, e.target.value)}
+                                                className="stock-input"
+                                            />
+                                            <button onClick={() => handleUpdateStock(product.id)} className="stock-update-button" disabled={updatingStockId === product.id}>
+                                                {updatingStockId === product.id ? '...' : 'Salvar'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </li>
+                            );
+                        })}
                     </ul>
                 )}
             </section>
