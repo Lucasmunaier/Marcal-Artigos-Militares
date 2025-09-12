@@ -15,6 +15,7 @@ interface Product {
     category_ids: number[];
     is_customizable: boolean;
     custom_text_label: string | null;
+    stock: number;
 }
 
 interface Category {
@@ -112,8 +113,11 @@ const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating, sear
 
 const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
     const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
+    const isOutOfStock = item.type === 'product' && (item.data as Product).stock <= 0;
+
     return (
-        <div className="product-card" onClick={() => onProductClick(item)}>
+        <div className={`product-card ${isOutOfStock ? 'out-of-stock' : ''}`} onClick={() => !isOutOfStock && onProductClick(item)}>
+            {isOutOfStock && <span className="item-badge stock-badge">Sem Estoque</span>}
             {item.type === 'kit' && <span className="item-badge">KIT</span>}
             <img src={imageUrl} alt={item.data.name} />
             <div className="product-card-info">
@@ -130,7 +134,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
     
-    const images = useMemo(() => (item.type === 'product' ? item.data.images : item.data.images) || [], [item]);
+    const images = useMemo(() => (item.data.images) || [], [item]);
     const [mainImage, setMainImage] = useState(images[0] || PLACEHOLDER_IMAGE);
 
     useEffect(() => {
@@ -139,7 +143,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
 
     const handleAddToCartClick = () => {
         if (item.type === 'product') {
-            const product = item.data;
+            const product = item.data as Product;
             if (product.is_customizable && !customText.trim()) {
                 alert('Por favor, insira o texto para personalização.');
                 return;
@@ -156,6 +160,8 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         }, 1500);
     };
     
+    const isOutOfStock = item.type === 'product' && (item.data as Product).stock <= 0;
+
     const renderProductDetails = () => {
         const product = item.data as Product;
         return (
@@ -224,14 +230,17 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
                         <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                        {isOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
                         <p className="description">{item.data.description}</p>
                         {item.type === 'product' ? renderProductDetails() : renderKitDetails()}
                         <button 
                             className={`add-to-cart-button ${showSuccess ? 'success' : ''}`} 
                             onClick={handleAddToCartClick} 
-                            disabled={showSuccess}
+                            disabled={showSuccess || isOutOfStock}
                         >
-                            {showSuccess ? (
+                            {isOutOfStock ? (
+                                'Produto Esgotado'
+                            ) : showSuccess ? (
                                 <>Adicionado! <span className="checkmark">✓</span></>
                             ) : (
                                 `Adicionar ${item.type === 'kit' ? 'Kit ' : ''}ao Carrinho`
@@ -336,7 +345,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [kits, setKits] = useState<Kit[]>(initialKits);
     
     // Estados de Navegação
-    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits'>('menu');
+    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock'>('menu');
 
     // Estados de Edição
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -349,6 +358,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
     const [isSubmittingKit, setIsSubmittingKit] = useState(false);
     const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+    const [updatingStockId, setUpdatingStockId] = useState<number | null>(null);
     
     // Drag and Drop
     const [draggedItem, setDraggedItem] = useState<{ list: 'product' | 'kit', index: number } | null>(null);
@@ -366,6 +376,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [kitExistingImages, setKitExistingImages] = useState<string[]>([]);
     const [selectedKitProducts, setSelectedKitProducts] = useState<Set<number>>(new Set());
     const [kitProductSearch, setKitProductSearch] = useState('');
+
+    // Estado de Estoque
+    const [stockLevels, setStockLevels] = useState<{ [key: number]: string }>({});
+
+    useEffect(() => {
+        const initialStocks = initialProducts.reduce((acc, p) => {
+            acc[p.id] = String(p.stock ?? 0);
+            return acc;
+        }, {});
+        setStockLevels(initialStocks);
+    }, [initialProducts]);
 
 
     useEffect(() => {
@@ -675,7 +696,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             savedProduct = data;
         }
 
-        const finalProduct = { ...savedProduct, category_ids: savedProduct.category_ids || [] };
+        const finalProduct = { ...savedProduct, category_ids: savedProduct.category_ids || [], stock: savedProduct.stock ?? 0 };
 
         let newProducts;
         if (editingProduct) {
@@ -893,6 +914,43 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         }
     };
     
+    const handleStockChange = (productId: number, value: string) => {
+        if (/^\d*$/.test(value)) {
+            setStockLevels(prev => ({ ...prev, [productId]: value }));
+        }
+    };
+
+    const handleUpdateStock = async (productId: number) => {
+        const newStockString = stockLevels[productId];
+        if (newStockString === null || newStockString === undefined || newStockString.trim() === '') {
+            alert('O campo de estoque não pode estar vazio.');
+            return;
+        }
+        const newStock = parseInt(newStockString, 10);
+
+        if (isNaN(newStock) || newStock < 0) {
+            alert('Por favor, insira um valor de estoque válido (número inteiro maior ou igual a 0).');
+            return;
+        }
+
+        setUpdatingStockId(productId);
+        const { data: updatedProduct, error } = await supabase
+            .from('products')
+            .update({ stock: newStock })
+            .eq('id', productId)
+            .select()
+            .single();
+        setUpdatingStockId(null);
+
+        if (error) {
+            alert('Erro ao atualizar o estoque: ' + error.message);
+        } else {
+            const newProducts = products.map(p => p.id === productId ? updatedProduct : p);
+            setProducts(newProducts);
+            onDataChange(newProducts, categories, kits);
+        }
+    };
+
     const categoriesWithoutAll = categories.filter(c => c.id !== 1);
 
     const renderMenu = () => (
@@ -900,6 +958,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             <button className="admin-button" onClick={() => setActiveView('products')}>Gerenciar Produtos</button>
             <button className="admin-button" onClick={() => setActiveView('categories')}>Gerenciar Categorias</button>
             <button className="admin-button" onClick={() => setActiveView('kits')}>Gerenciar Kits</button>
+            <button className="admin-button" onClick={() => setActiveView('stock')}>Gerenciar Estoque</button>
         </div>
     );
     
@@ -1001,13 +1060,15 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                                     return (
                                         <li key={product.id}>
                                             <img src={imageUrl} alt={product.name} className="item-list-img" />
-                                            <span>{product.name}</span>
-                                            <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
-                                            <div className="item-list-actions">
-                                                <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
-                                                <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
-                                                    {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
-                                                </button>
+                                            <div className="item-list-details">
+                                                <span className="item-list-name">{product.name}</span>
+                                                <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
+                                                <div className="item-list-actions">
+                                                    <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
+                                                    <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
+                                                        {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </li>
                                     );
@@ -1056,7 +1117,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                                         </form>
                                     ) : (
                                         <>
-                                            <span>{cat.name}</span>
+                                            <span className="item-list-name">{cat.name}</span>
                                             <div className="item-list-actions">
                                                 <button onClick={() => handleStartEditCategory(cat)} className="item-list-edit-button">Editar</button>
                                                 <button onClick={() => handleDeleteCategory(cat.id)} className="item-list-delete-button" disabled={deletingItemId === `cat-${cat.id}`} aria-label={`Excluir categoria ${cat.name}`}>
@@ -1180,13 +1241,15 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                                 return (
                                     <li key={kit.id}>
                                         <img src={imageUrl} alt={kit.name} className="item-list-img" />
-                                        <span>{kit.name}</span>
-                                        <span className="item-list-price">R$ {kit.price.toFixed(2).replace('.',',')}</span>
-                                        <div className="item-list-actions">
-                                            <button onClick={() => setEditingKit(kit)} className="item-list-edit-button">Editar</button>
-                                            <button onClick={() => handleDeleteKit(kit.id)} className="item-list-delete-button" disabled={deletingItemId === `kit-${kit.id}`} aria-label={`Excluir kit ${kit.name}`}>
-                                                {deletingItemId === `kit-${kit.id}` ? '...' : 'Excluir'}
-                                            </button>
+                                        <div className="item-list-details">
+                                            <span className="item-list-name">{kit.name}</span>
+                                            <span className="item-list-price">R$ {kit.price.toFixed(2).replace('.',',')}</span>
+                                            <div className="item-list-actions">
+                                                <button onClick={() => setEditingKit(kit)} className="item-list-edit-button">Editar</button>
+                                                <button onClick={() => handleDeleteKit(kit.id)} className="item-list-delete-button" disabled={deletingItemId === `kit-${kit.id}`} aria-label={`Excluir kit ${kit.name}`}>
+                                                    {deletingItemId === `kit-${kit.id}` ? '...' : 'Excluir'}
+                                                </button>
+                                            </div>
                                         </div>
                                     </li>
                                 );
@@ -1198,6 +1261,49 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         </div>
         );
     };
+
+    const renderStockView = () => (
+        <div className="admin-view">
+            <button onClick={() => setActiveView('menu')} className="admin-back-button">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
+                Voltar ao Menu
+            </button>
+            <section className="admin-section">
+                <h3>Gerenciar Estoque</h3>
+                <p>Atualize a quantidade de cada produto em seu inventário.</p>
+                {products.length === 0 ? (
+                    <p className="empty-list-message">Nenhum produto cadastrado para gerenciar o estoque.</p>
+                ) : (
+                    <ul className="item-list stock-list">
+                        {products.map(product => {
+                             const imageUrl = (product.images && product.images.length > 0) ? product.images[0] : PLACEHOLDER_IMAGE;
+                            return (
+                            <li key={product.id}>
+                                 <img src={imageUrl} alt={product.name} className="item-list-img" />
+                                <span className="item-list-name">{product.name}</span>
+                                <div className="stock-controls">
+                                    <label htmlFor={`stock-${product.id}`} className="sr-only">Estoque para {product.name}</label>
+                                    <input
+                                        id={`stock-${product.id}`}
+                                        type="number"
+                                        min="0"
+                                        value={stockLevels[product.id] || '0'}
+                                        onChange={(e) => handleStockChange(product.id, e.target.value)}
+                                        className="stock-input"
+                                    />
+                                    <button onClick={() => handleUpdateStock(product.id)} className="stock-update-button" disabled={updatingStockId === product.id}>
+                                        {updatingStockId === product.id ? 'Salvando...' : 'Salvar'}
+                                    </button>
+                                </div>
+                            </li>
+                        )})}
+                    </ul>
+                )}
+            </section>
+        </div>
+    );
 
 
     return (
@@ -1216,6 +1322,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             {activeView === 'products' && renderProductsView()}
             {activeView === 'categories' && renderCategoriesView()}
             {activeView === 'kits' && renderKitsView()}
+            {activeView === 'stock' && renderStockView()}
         </div>
     );
 };
@@ -1278,6 +1385,7 @@ const App = () => {
             const localProducts: Product[] = (productsData || []).map(p => ({
                 ...p,
                 category_ids: p.category_ids || [], // Ensure category_ids is always an array
+                stock: p.stock ?? 0, // Ensure stock is always a number
             }));
             setProducts(localProducts);
 

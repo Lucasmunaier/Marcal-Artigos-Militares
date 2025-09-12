@@ -1,3 +1,4 @@
+
 :root {
     --primary-color: #5A6D3B; /* Verde Oliva Principal */
     --secondary-color: #696969; /* Cinza Escuro */
@@ -246,6 +247,7 @@ main {
     width: 100%;
     height: 250px;
     object-fit: cover;
+    transition: filter var(--transition-speed) ease;
 }
 
 .product-card-info {
@@ -277,6 +279,35 @@ main {
     border-radius: 5px;
     font-size: 0.8rem;
     font-weight: 600;
+    z-index: 2;
+}
+
+/* Estoque */
+.product-card.out-of-stock {
+    opacity: 0.7;
+    cursor: default;
+}
+
+.product-card.out-of-stock:hover {
+    transform: translateY(0);
+    box-shadow: var(--box-shadow);
+}
+
+.product-card.out-of-stock img {
+    filter: grayscale(80%);
+}
+
+.item-badge.stock-badge {
+    background-color: var(--secondary-color);
+    top: 10px;
+    left: 10px;
+    right: auto;
+}
+
+.stock-message-error {
+    color: var(--danger-color);
+    font-weight: 600;
+    margin-bottom: 1.5rem;
 }
 
 
@@ -437,7 +468,7 @@ main {
     font-size: 1.8rem;
     font-weight: 600;
     color: var(--primary-color);
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
 }
 
 .product-detail-info .description {
@@ -495,6 +526,7 @@ main {
 .add-to-cart-button:disabled {
     opacity: 1;
     cursor: default;
+    background-color: var(--secondary-color);
 }
 
 .add-to-cart-button:hover:not(:disabled) {
@@ -800,6 +832,11 @@ main {
     padding-bottom: 0.8rem;
 }
 
+.admin-section > p {
+    margin-bottom: 1rem;
+    color: var(--secondary-color);
+}
+
 .item-list {
     list-style: none;
     max-height: 400px;
@@ -817,9 +854,12 @@ main {
     background-color: white;
     gap: 0.5rem;
 }
-.item-list li > span {
+.item-list-name {
     flex-grow: 1;
-    word-break: break-word;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0; /* Important for flex items that need to truncate */
 }
 
 
@@ -836,8 +876,16 @@ main {
     flex-shrink: 0;
 }
 
+.item-list-details {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    flex-grow: 1;
+    min-width: 0;
+}
+
 .item-list-price {
-    margin-left: auto;
     font-weight: 600;
     color: var(--primary-color);
     flex-shrink: 0;
@@ -1176,10 +1224,66 @@ main {
 }
 
 
+/* Admin Stock Management */
+.stock-list li {
+    justify-content: flex-start;
+}
+
+.stock-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-left: auto;
+}
+
+.stock-input {
+    width: 80px;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: var(--border-radius);
+    text-align: center;
+    font-size: 1rem;
+}
+
+.stock-update-button {
+    background-color: var(--success-color);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease, transform 0.1s ease;
+}
+.stock-update-button:hover:not(:disabled) {
+    background-color: #55701d;
+}
+.stock-update-button:disabled {
+     background-color: var(--secondary-color);
+     cursor: not-allowed;
+     opacity: 0.7;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+
 /* Responsive Design */
 @media (max-width: 960px) {
     .admin-content-grid {
         grid-template-columns: 1fr;
+    }
+    .admin-section {
+        padding: 1rem;
     }
 }
 
@@ -1194,6 +1298,10 @@ main {
 
     .logo-container {
         order: 1;
+        gap: 0.5rem;
+    }
+    header h1 {
+        font-size: 1.2rem;
     }
 
     .cart-button {
