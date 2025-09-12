@@ -77,11 +77,29 @@ const SkeletonCard = () => (
     </div>
 );
 
-const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating }) => (
+const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating, searchQuery, onSearchChange }) => (
     <header>
         <div className="logo-container" onClick={onLogoClick} style={{cursor: 'pointer'}}>
             <img src="/icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
             <h1>Marçal Artigos Militares</h1>
+        </div>
+        <div className="search-container">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="search-icon">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            <input
+                type="text"
+                className="search-input"
+                placeholder="Buscar produtos..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                aria-label="Buscar produtos"
+            />
+            {searchQuery && (
+                <button onClick={() => onSearchChange('')} className="search-clear-button" aria-label="Limpar busca">
+                    &times;
+                </button>
+            )}
         </div>
         <button className={`cart-button ${isCartAnimating ? 'bouncing' : ''}`} onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
             <svg className="cart-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -336,7 +354,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [draggedItem, setDraggedItem] = useState<{ list: 'product' | 'kit', index: number } | null>(null);
 
     // Formulário de produto
-    const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
+    const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
     const [imageFiles, setImageFiles] = useState<File[]>([]);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [existingImages, setExistingImages] = useState<string[]>([]);
@@ -411,7 +429,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     }, [selectedKitProducts, products, activeView]);
 
     const resetProductForm = () => {
-        setProductForm({ name: '', description: '', price: '', category_ids: [], sizes: '', has_sizes: true, is_customizable: false, custom_text_label: 'Nome' });
+        setProductForm({ name: '', description: '', price: '', category_ids: [], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
         imagePreviews.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
         setImageFiles([]);
         setImagePreviews([]);
@@ -604,10 +622,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
 
     const handleProductFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (imagePreviews.length === 0) {
-            alert('Por favor, adicione pelo menos uma imagem para o produto.');
-            return;
-        }
         setIsSubmittingProduct(true);
         
         const uploadedImageUrls: string[] = [];
@@ -660,9 +674,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             if (error) { alert('Erro ao adicionar produto: ' + error.message); setIsSubmittingProduct(false); return; }
             savedProduct = data;
         }
-        
+
         const finalProduct = { ...savedProduct, category_ids: savedProduct.category_ids || [] };
-        
+
         let newProducts;
         if (editingProduct) {
             newProducts = products.map(p => p.id === finalProduct.id ? finalProduct : p);
@@ -676,40 +690,91 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     };
 
     const handleDeleteProduct = async (productId: number) => {
-        const isProductInKit = kits.some(kit => (kit.products || []).some(p => p.id === productId));
-        if (isProductInKit) {
-            alert('Este produto não pode ser excluído, pois faz parte de um ou mais kits. Por favor, remova-o dos kits primeiro.');
-            return;
-        }
-
         const productToDelete = products.find(p => p.id === productId);
         if (!productToDelete) return;
-        
-        if (window.confirm('Tem certeza que deseja excluir este produto?')) {
-            setDeletingItemId(`prod-${productId}`);
-            
+
+        const kitsContainingProduct = kits.filter(kit =>
+            (kit.products || []).some(p => p.id === productId)
+        );
+        const isProductInKit = kitsContainingProduct.length > 0;
+
+        if (isProductInKit) {
+            const kitNames = kitsContainingProduct.map(k => k.name).join(', ');
+            const confirmMessage = `Este produto está nos seguintes kits: ${kitNames}.\n\nDeseja removê-lo desses kits e excluir o produto permanentemente?`;
+
+            if (!window.confirm(confirmMessage)) {
+                return; // User cancelled the operation
+            }
+
+            // User confirmed, so first remove product from all kits
+            const { error: assocError } = await supabase
+                .from('kit_products')
+                .delete()
+                .eq('product_id', productId);
+
+            if (assocError) {
+                alert('Erro ao remover o produto dos kits: ' + assocError.message);
+                setDeletingItemId(null);
+                return;
+            }
+        } else {
+            // Standard confirmation for products not in any kit
+            if (!window.confirm('Tem certeza que deseja excluir este produto?')) {
+                return;
+            }
+        }
+
+        // Proceed with deletion
+        setDeletingItemId(`prod-${productId}`);
+        try {
+            // Delete images from storage
             if (productToDelete.images?.length > 0) {
-                const imagePaths = productToDelete.images.map(url => new URL(url).pathname.split('/product-images/')[1]);
-                await supabase.storage.from('product-images').remove(imagePaths);
+                const imagePaths = productToDelete.images.map(url => {
+                    try {
+                        // Extract path from a full URL, e.g., https://.../product-images/public/image.png -> public/image.png
+                        return new URL(url).pathname.split('/product-images/')[1];
+                    } catch (e) {
+                        console.warn('URL de imagem inválida, pulando exclusão:', url);
+                        return null;
+                    }
+                }).filter(Boolean) as string[];
+
+                if (imagePaths.length > 0) {
+                     await supabase.storage.from('product-images').remove(imagePaths);
+                }
             }
-            const { error } = await supabase.from('products').delete().eq('id', productId);
-            if (error) {
-                alert('Erro ao excluir produto: ' + error.message);
+
+            // Delete product from database
+            const { error: deleteError } = await supabase.from('products').delete().eq('id', productId);
+
+            if (deleteError) {
+                alert(`Erro ao excluir produto: ${deleteError.message}\n\nIsso pode acontecer se o produto ainda estiver vinculado a outras partes do sistema.`);
             } else {
+                // Update local state on success
                 const newProducts = products.filter(p => p.id !== productId);
+                
+                let updatedKits = kits;
+                if (isProductInKit) {
+                    // Also update the local kits state to remove the product
+                    updatedKits = kits.map(kit => ({
+                        ...kit,
+                        products: (kit.products || []).filter(p => p.id !== productId),
+                    }));
+                }
+                
                 setProducts(newProducts);
-                onDataChange(newProducts, categories, kits);
+                setKits(updatedKits);
+                onDataChange(newProducts, categories, updatedKits);
             }
+        } catch (e: any) {
+            alert('Ocorreu um erro inesperado: ' + e.message);
+        } finally {
             setDeletingItemId(null);
         }
     };
 
     const handleKitFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (kitImagePreviews.length === 0) {
-            alert('Por favor, adicione pelo menos uma imagem para o kit.');
-            return;
-        }
         setIsSubmittingKit(true);
 
         const uploadedImageUrls: string[] = [];
@@ -851,7 +916,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                      <h3>{editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}</h3>
                     <form onSubmit={handleProductFormSubmit} className="admin-form">
                         <div className="form-group"><label htmlFor="productName">Nome</label><input type="text" id="productName" name="name" value={productForm.name} onChange={handleFormChange} required /></div>
-                        <div className="form-group"><label htmlFor="productDescription">Descrição</label><textarea id="productDescription" name="description" value={productForm.description} onChange={handleFormChange} required></textarea></div>
+                        <div className="form-group"><label htmlFor="productDescription">Descrição</label><textarea id="productDescription" name="description" value={productForm.description} onChange={handleFormChange}></textarea></div>
                         <div className="form-group"><label htmlFor="productPrice">Preço (ex: 99.90)</label><input type="number" id="productPrice" name="price" value={productForm.price} onChange={handleFormChange} step="0.01" required /></div>
                         
                         <div className="form-group">
@@ -1025,7 +1090,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                     <h3>{editingKit ? 'Editar Kit' : 'Criar Novo Kit'}</h3>
                     <form onSubmit={handleKitFormSubmit} className="admin-form">
                         <div className="form-group"><label htmlFor="kitName">Nome do Kit</label><input type="text" id="kitName" name="name" value={kitForm.name} onChange={handleKitFormChange} required /></div>
-                        <div className="form-group"><label htmlFor="kitDescription">Descrição</label><textarea id="kitDescription" name="description" value={kitForm.description} onChange={handleKitFormChange} required></textarea></div>
+                        <div className="form-group"><label htmlFor="kitDescription">Descrição</label><textarea id="kitDescription" name="description" value={kitForm.description} onChange={handleKitFormChange}></textarea></div>
                         <div className="form-group"><label htmlFor="kitPrice">Preço do Kit</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
                         
                         <div className="form-group">
@@ -1181,6 +1246,7 @@ const App = () => {
     const [kits, setKits] = useState<Kit[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number>(1); // 1 = 'Todos'
+    const [searchQuery, setSearchQuery] = useState('');
     const [selectedDisplayItem, setSelectedDisplayItem] = useState<DisplayItem | null>(null);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -1204,16 +1270,17 @@ const App = () => {
             const { data: kitsData, error: kitsError } = await supabase.from('kits').select('*');
             if(kitsError) console.error('Erro ao buscar kits:', kitsError.message);
 
-            // Fetch association data
+            // Fetch association data for kits
             const { data: kitProductsData, error: kitProductsError } = await supabase.from('kit_products').select('*');
             if(kitProductsError) console.error('Erro ao buscar produtos dos kits:', kitProductsError.message);
 
-            // Process products with their categories - now directly from the products table
+            // Process products with their categories from the product table itself
             const localProducts: Product[] = (productsData || []).map(p => ({
                 ...p,
-                category_ids: p.category_ids || []
+                category_ids: p.category_ids || [], // Ensure category_ids is always an array
             }));
             setProducts(localProducts);
+
 
             // Process kits
             if (kitsData && localProducts && kitProductsData) {
@@ -1362,11 +1429,25 @@ const App = () => {
     const navigateToStore = () => {
         setCurrentView('store');
         setSelectedCategory(1);
+        setSearchQuery('');
     };
     
     const navigateToAdminLogin = () => {
         setCurrentView('adminLogin');
     };
+
+    const handleSearchChange = (query: string) => {
+        setSearchQuery(query);
+        if (query.trim() !== '') {
+            setSelectedCategory(1); // Redefine para "Todos" quando uma consulta de pesquisa é inserida
+        }
+    };
+    
+    const handleCategoryClick = (categoryId: number) => {
+        setSelectedCategory(categoryId);
+        setSearchQuery(''); // Limpa a pesquisa quando uma categoria é selecionada
+    };
+
 
     // Renderização
     const displayItems = useMemo((): DisplayItem[] => {
@@ -1376,9 +1457,21 @@ const App = () => {
     }, [products, kits]);
 
     const filteredDisplayItems = useMemo(() => {
-        if (selectedCategory === 1) return displayItems;
+        const lowercasedQuery = searchQuery.trim().toLowerCase();
+
+        if (lowercasedQuery) {
+            return displayItems.filter(item =>
+                item.data.name.toLowerCase().includes(lowercasedQuery) ||
+                item.data.description.toLowerCase().includes(lowercasedQuery)
+            );
+        }
+
+        if (selectedCategory === 1) {
+            return displayItems;
+        }
+
         return displayItems.filter(item => (item.data.category_ids || []).includes(selectedCategory));
-    }, [displayItems, selectedCategory]);
+    }, [displayItems, searchQuery, selectedCategory]);
 
     const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
     
@@ -1392,7 +1485,14 @@ const App = () => {
 
     return (
         <>
-            <Header onCartClick={() => setIsCartOpen(true)} cartItemCount={cartItemCount} onLogoClick={navigateToStore} isCartAnimating={isCartAnimating} />
+            <Header
+                onCartClick={() => setIsCartOpen(true)}
+                cartItemCount={cartItemCount}
+                onLogoClick={navigateToStore}
+                isCartAnimating={isCartAnimating}
+                searchQuery={searchQuery}
+                onSearchChange={handleSearchChange}
+            />
             <main>
                 <img src="/Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
                 <div className="category-filters">
@@ -1400,7 +1500,7 @@ const App = () => {
                         <button
                             key={cat.id}
                             className={`category-button ${selectedCategory === cat.id ? 'active' : ''}`}
-                            onClick={() => setSelectedCategory(cat.id)}
+                            onClick={() => handleCategoryClick(cat.id)}
                         >
                             {cat.name}
                         </button>
@@ -1413,9 +1513,15 @@ const App = () => {
                     </div>
                 ) : (
                     <div className="product-grid">
-                        {filteredDisplayItems.length > 0 ? filteredDisplayItems.map(item => (
-                            <ProductCard key={`${item.type}-${item.data.id}`} item={item} onProductClick={setSelectedDisplayItem} />
-                        )) : <p>Nenhum produto encontrado nesta categoria.</p>}
+                        {filteredDisplayItems.length > 0 ? (
+                            filteredDisplayItems.map(item => (
+                                <ProductCard key={`${item.type}-${item.data.id}`} item={item} onProductClick={setSelectedDisplayItem} />
+                            ))
+                        ) : (
+                            <p className="no-results-message">
+                                {searchQuery ? `Nenhum resultado encontrado para "${searchQuery}".` : 'Nenhum produto encontrado nesta categoria.'}
+                            </p>
+                        )}
                     </div>
                 )}
             </main>
