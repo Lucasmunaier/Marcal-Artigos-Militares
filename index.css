@@ -1660,6 +1660,15 @@ main {
     main {
         padding: 1rem;
     }
+
+    .carousel-container {
+        aspect-ratio: 16 / 9; /* Taller aspect ratio for mobile for better text visibility */
+    }
+
+    .carousel-content {
+        padding: 1.5rem; /* Adjusted padding for mobile */
+    }
+    
     .carousel-content h1 { font-size: 1.8rem; }
     .carousel-content p { font-size: 1rem; }
     
