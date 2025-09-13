@@ -1,4 +1,5 @@
 
+
 :root {
     --primary-color: #5A6D3B; /* Verde Oliva Principal */
     --secondary-color: #696969; /* Cinza Escuro */
@@ -1290,6 +1291,73 @@ main {
     font-size: 1.5rem;
     line-height: 1;
     margin-right: -0.5rem;
+}
+
+/* Highlight Preview & Focal Point */
+.highlight-preview-container {
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    border: 1px dashed #ccc;
+    padding: 1rem;
+    border-radius: var(--border-radius);
+}
+.highlight-preview-container h4 {
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+.highlight-preview-image {
+    width: 100%;
+    aspect-ratio: 16 / 7;
+    object-fit: cover;
+    border-radius: var(--border-radius);
+    background-color: #f0f0f0;
+    margin-bottom: 1rem;
+    border: 1px solid #eee;
+}
+
+.focal-point-selector {
+    margin-top: 1rem;
+}
+.focal-point-selector label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.focal-point-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    width: 90px;
+    height: 90px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+}
+
+.focal-point-button {
+    background-color: #e0e0e0;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    position: relative;
+}
+
+.focal-point-button:hover {
+    background-color: #d0d0d0;
+}
+
+.focal-point-button.active::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 12px;
+    height: 12px;
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
 }
 
 

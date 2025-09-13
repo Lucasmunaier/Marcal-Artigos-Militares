@@ -42,6 +42,7 @@ interface Highlight {
     title: string | null;
     subtitle: string | null;
     sort_order: number;
+    object_position: string;
 }
 
 interface DisplayHighlight extends Highlight {
@@ -179,7 +180,7 @@ const Carousel = ({ items, onProductClick }) => {
 
         return (
             <div className={`carousel-slide ${isClickable ? 'clickable' : ''}`} onClick={clickHandler}>
-                <img src={imageUrl} alt={title || 'Destaque'} />
+                <img src={imageUrl} alt={title || 'Destaque'} style={{ objectPosition: item.object_position || 'center center' }} />
                 {(title || subtitle || price) && (
                     <div className="carousel-content">
                         {title && <h1>{title}</h1>}
@@ -459,6 +460,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
     const [editingCategory, setEditingCategory] = useState<Category | null>(null);
     const [editingKit, setEditingKit] = useState<Kit | null>(null);
+    const [editingHighlight, setEditingHighlight] = useState<Highlight | null>(null);
     const [editingCategoryName, setEditingCategoryName] = useState('');
 
     // Estados de Loading
@@ -484,8 +486,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [kitProductSearch, setKitProductSearch] = useState('');
 
     // Formulário de Destaque
-    const [highlightForm, setHighlightForm] = useState({ type: 'product', product_id: '', image_url: '', title: '', subtitle: '' });
+    const [highlightForm, setHighlightForm] = useState({ type: 'product', product_id: '', title: '', subtitle: '', object_position: 'center center' });
     const [highlightImageFile, setHighlightImageFile] = useState<File | null>(null);
+    const [highlightImagePreview, setHighlightImagePreview] = useState<string | null>(null);
 
     // Estado de Estoque
     const [stockLevels, setStockLevels] = useState<{ [key: number]: string }>({});
@@ -545,6 +548,32 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     }, [editingKit]);
 
     useEffect(() => {
+        if (editingHighlight) {
+            setHighlightForm({
+                type: editingHighlight.type,
+                product_id: editingHighlight.product_id?.toString() || '',
+                title: editingHighlight.title || '',
+                subtitle: editingHighlight.subtitle || '',
+                object_position: editingHighlight.object_position || 'center center'
+            });
+            setHighlightImageFile(null);
+            setHighlightImagePreview(editingHighlight.image_url || null);
+            setActiveView('highlights');
+        } else {
+            resetHighlightForm();
+        }
+    }, [editingHighlight]);
+
+    useEffect(() => {
+        if (highlightImageFile) {
+            const previewUrl = URL.createObjectURL(highlightImageFile);
+            setHighlightImagePreview(previewUrl);
+            return () => URL.revokeObjectURL(previewUrl);
+        }
+    }, [highlightImageFile]);
+
+
+    useEffect(() => {
         if (products.length > 0 && activeView === 'kits') {
             const productImages = products
                 .filter(p => selectedKitProducts.has(p.id))
@@ -577,6 +606,15 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         setSelectedKitProducts(new Set());
         setKitProductSearch('');
         setEditingKit(null);
+    };
+
+    const resetHighlightForm = () => {
+        setHighlightForm({ type: 'product', product_id: '', title: '', subtitle: '', object_position: 'center center' });
+        setHighlightImageFile(null);
+        setHighlightImagePreview(null);
+        setEditingHighlight(null);
+        const fileInput = document.getElementById('highlightImage') as HTMLInputElement;
+        if (fileInput) fileInput.value = '';
     };
 
     const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -1077,59 +1115,61 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     };
     
-    const handleAddHighlight = async (e) => {
+    const handleHighlightSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
 
-        const newHighlightData: Partial<Highlight> = {
+        const highlightData: Partial<Highlight> = {
             type: highlightForm.type as 'product' | 'image',
-            sort_order: highlights.length, // Add to the end
+            title: highlightForm.title,
+            subtitle: highlightForm.subtitle,
+            object_position: highlightForm.object_position
         };
 
         if (highlightForm.type === 'product') {
             if (!highlightForm.product_id) {
                 alert('Por favor, selecione um produto.');
-                setIsSubmitting(false);
-                return;
-            }
-            newHighlightData.product_id = parseInt(highlightForm.product_id, 10);
-        } else { // type is 'image'
-            if (!highlightImageFile) {
-                alert('Por favor, selecione uma imagem.');
-                setIsSubmitting(false);
-                return;
-            }
-            const file = highlightImageFile;
-            const filePath = `highlights/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
-            const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
-
-            if (uploadError) {
-                alert('Erro ao fazer upload da imagem de destaque: ' + uploadError.message);
                 setIsSubmitting(false); return;
             }
-            const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-            newHighlightData.image_url = data.publicUrl;
-            newHighlightData.title = highlightForm.title;
-            newHighlightData.subtitle = highlightForm.subtitle;
+            highlightData.product_id = parseInt(highlightForm.product_id, 10);
+            highlightData.image_url = null;
+        } else { // type is 'image'
+            highlightData.product_id = null;
+            if (highlightImageFile) { // If a new file is uploaded
+                const file = highlightImageFile;
+                const filePath = `highlights/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+                const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
+                if (uploadError) {
+                    alert('Erro no upload: ' + uploadError.message);
+                    setIsSubmitting(false); return;
+                }
+                const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+                highlightData.image_url = data.publicUrl;
+            } else if (!editingHighlight || !editingHighlight.image_url) {
+                alert('Por favor, selecione uma imagem.');
+                setIsSubmitting(false); return;
+            }
         }
 
-        const { data: addedHighlight, error } = await supabase
-            .from('highlights')
-            .insert(newHighlightData)
-            .select()
-            .single();
-
-        if (error) {
-            alert('Erro ao adicionar destaque: ' + error.message);
+        let savedHighlight;
+        if (editingHighlight) {
+            const { data, error } = await supabase.from('highlights').update(highlightData).eq('id', editingHighlight.id).select().single();
+            if (error) { alert('Erro ao atualizar: ' + error.message); setIsSubmitting(false); return; }
+            savedHighlight = data;
         } else {
-            const newHighlights = [...highlights, addedHighlight];
-            setHighlights(newHighlights);
-            onDataChange(products, categories, kits, newHighlights);
-            setHighlightForm({ type: 'product', product_id: '', image_url: '', title: '', subtitle: '' });
-            setHighlightImageFile(null);
-            const fileInput = document.getElementById('highlightImage') as HTMLInputElement;
-            if (fileInput) fileInput.value = '';
+            highlightData.sort_order = highlights.length;
+            const { data, error } = await supabase.from('highlights').insert(highlightData).select().single();
+            if (error) { alert('Erro ao adicionar: ' + error.message); setIsSubmitting(false); return; }
+            savedHighlight = data;
         }
+
+        const newHighlights = editingHighlight
+            ? highlights.map(h => h.id === savedHighlight.id ? savedHighlight : h)
+            : [...highlights, savedHighlight];
+            
+        setHighlights(newHighlights);
+        onDataChange(products, categories, kits, newHighlights);
+        resetHighlightForm();
         setIsSubmitting(false);
     };
 
@@ -1557,6 +1597,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             }
         };
 
+        const focalPointPositions = [
+            'top left', 'top center', 'top right',
+            'center left', 'center center', 'center right',
+            'bottom left', 'bottom center', 'bottom right'
+        ];
+
         return (
             <div className="admin-view">
                 <button onClick={() => setActiveView('menu')} className="admin-back-button">
@@ -1565,8 +1611,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 </button>
                 <div className="admin-content-grid">
                     <section className="admin-section">
-                        <h3>Adicionar Novo Destaque</h3>
-                        <form onSubmit={handleAddHighlight} className="admin-form">
+                        <h3>{editingHighlight ? 'Editar Destaque' : 'Adicionar Novo Destaque'}</h3>
+                        <form onSubmit={handleHighlightSubmit} className="admin-form">
                             <div className="form-group">
                                 <label>Tipo de Destaque</label>
                                 <select name="type" value={highlightForm.type} onChange={handleHighlightFormChange} style={{marginBottom: '1rem'}}>
@@ -1587,7 +1633,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                 <>
                                     <div className="form-group">
                                         <label htmlFor="highlightImage">Imagem</label>
-                                        <input type="file" id="highlightImage" name="image" accept="image/*" onChange={handleHighlightFormChange} required />
+                                        <input type="file" id="highlightImage" name="image" accept="image/*" onChange={handleHighlightFormChange} />
                                     </div>
                                     <div className="form-group">
                                         <label htmlFor="title">Título (opcional)</label>
@@ -1597,12 +1643,42 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                         <label htmlFor="subtitle">Subtítulo (opcional)</label>
                                         <input type="text" id="subtitle" name="subtitle" value={highlightForm.subtitle} onChange={handleHighlightFormChange} />
                                     </div>
+                                    {highlightImagePreview && (
+                                        <div className="highlight-preview-container">
+                                            <h4>Pré-visualização do Enquadramento</h4>
+                                            <img 
+                                                src={highlightImagePreview} 
+                                                className="highlight-preview-image"
+                                                style={{ objectPosition: highlightForm.object_position }}
+                                                alt="Pré-visualização do destaque"
+                                            />
+                                            <div className="focal-point-selector">
+                                                <label>Ponto Focal (clique para ajustar)</label>
+                                                <div className="focal-point-grid">
+                                                    {focalPointPositions.map(pos => (
+                                                        <button 
+                                                            type="button" 
+                                                            key={pos} 
+                                                            className={`focal-point-button ${highlightForm.object_position === pos ? 'active' : ''}`}
+                                                            onClick={() => setHighlightForm(prev => ({ ...prev, object_position: pos }))}
+                                                            aria-label={`Definir ponto focal para ${pos}`}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             )}
 
-                            <button type="submit" className="admin-button" disabled={isSubmitting}>
-                                {isSubmitting ? 'Adicionando...' : 'Adicionar Destaque'}
-                            </button>
+                            <div className="admin-form-actions">
+                                <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                    {isSubmitting ? 'Salvando...' : (editingHighlight ? 'Salvar Alterações' : 'Adicionar Destaque')}
+                                </button>
+                                {editingHighlight && (
+                                    <button type="button" className="admin-button cancel" onClick={resetHighlightForm}>Cancelar</button>
+                                )}
+                            </div>
                         </form>
                     </section>
                     <section className="admin-section">
@@ -1631,6 +1707,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                                 <small>{subtitle}</small>
                                             </div>
                                             <div className="item-list-actions">
+                                                 <button onClick={() => setEditingHighlight(highlight)} className="item-list-edit-button">Editar</button>
                                                 <button onClick={() => handleDeleteHighlight(highlight.id)} className="item-list-delete-button" disabled={deletingItemId === `hl-${highlight.id}`}>
                                                     {deletingItemId === `hl-${highlight.id}` ? '...' : 'Excluir'}
                                                 </button>
