@@ -1,17 +1,24 @@
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
 
 
 // --- TIPOS DE DADOS ---
+interface ProductImage {
+    url: string;
+    zoom: number;
+    pos_x: number;
+    pos_y: number;
+}
+
 interface Product {
     id: number;
     name: string;
     description: string;
     price: number;
-    images: string[];
+    images: ProductImage[];
     sizes: string[];
     category_ids: number[];
     is_customizable: boolean;
@@ -42,7 +49,9 @@ interface Highlight {
     title: string | null;
     subtitle: string | null;
     sort_order: number;
-    object_position: string;
+    zoom: number;
+    pos_x: number;
+    pos_y: number;
 }
 
 interface DisplayHighlight extends Highlight {
@@ -87,6 +96,22 @@ const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+I
 const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
 
 // --- COMPONENTES DA UI ---
+const FramedImage = ({ image, className, altText }: { image: ProductImage | null, className?: string, altText: string }) => {
+    const styles = image
+        ? {
+            backgroundImage: `url(${image.url})`,
+            backgroundSize: `${image.zoom * 100}%`,
+            backgroundPosition: `${image.pos_x * 100}% ${image.pos_y * 100}%`,
+        }
+        : {
+            backgroundImage: `url(${PLACEHOLDER_IMAGE})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center center',
+        };
+
+    return <div className={`framed-image ${className || ''}`} style={styles} role="img" aria-label={altText}></div>;
+};
+
 
 const SkeletonCard = () => (
     <div className="skeleton-card">
@@ -164,23 +189,39 @@ const Carousel = ({ items, onProductClick }) => {
     const currentItem = items[currentIndex];
 
     const getSlideContent = (item: DisplayHighlight) => {
-        let imageUrl, title, subtitle, price, isClickable = false, clickHandler = () => {};
+        let imageUrl: string | undefined, title, subtitle, price, isClickable = false, clickHandler = () => {};
+        let zoom = 1, pos_x = 0.5, pos_y = 0.5;
 
         if (item.type === 'product' && item.product) {
-            imageUrl = item.product.images?.[0] || PLACEHOLDER_IMAGE;
+            const firstImage = item.product.images?.[0];
+            imageUrl = firstImage?.url;
             title = item.product.name;
             price = item.product.price;
             isClickable = true;
             clickHandler = () => onProductClick({ type: 'product', data: item.product });
+            if (firstImage) {
+                zoom = firstImage.zoom;
+                pos_x = firstImage.pos_x;
+                pos_y = firstImage.pos_y;
+            }
         } else if (item.type === 'image') {
-            imageUrl = item.image_url;
+            imageUrl = item.image_url ?? undefined;
             title = item.title;
             subtitle = item.subtitle;
+            zoom = item.zoom;
+            pos_x = item.pos_x;
+            pos_y = item.pos_y;
         }
+
+        const backgroundStyles = {
+            backgroundImage: `url(${imageUrl || PLACEHOLDER_IMAGE})`,
+            backgroundSize: `${(zoom || 1) * 100}%`,
+            backgroundPosition: `${(pos_x || 0.5) * 100}% ${(pos_y || 0.5) * 100}%`,
+        };
 
         return (
             <div className={`carousel-slide ${isClickable ? 'clickable' : ''}`} onClick={clickHandler}>
-                <img src={imageUrl} alt={title || 'Destaque'} style={{ objectPosition: item.object_position || 'center center' }} />
+                <div className="carousel-slide-image" style={backgroundStyles} />
                 {(title || subtitle || price) && (
                     <div className="carousel-content">
                         {title && <h1>{title}</h1>}
@@ -220,14 +261,19 @@ const Carousel = ({ items, onProductClick }) => {
 
 
 const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
-    const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
     const isOutOfStock = item.type === 'product' && (item.data as Product).stock <= 0;
+    const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
+    const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
 
     return (
         <div className={`product-card ${isOutOfStock ? 'out-of-stock' : ''}`} onClick={() => !isOutOfStock && onProductClick(item)}>
             {isOutOfStock && <span className="item-badge stock-badge">Sem Estoque</span>}
             {item.type === 'kit' && <span className="item-badge">KIT</span>}
-            <img src={imageUrl} alt={item.data.name} />
+            {item.type === 'product' ? (
+                <FramedImage image={imageObject} className="product-card-image" altText={item.data.name} />
+            ) : (
+                <img src={kitImageUrl || PLACEHOLDER_IMAGE} alt={item.data.name} className="product-card-image-kit" />
+            )}
             <div className="product-card-info">
                 <h3>{item.data.name}</h3>
                 <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
@@ -242,11 +288,11 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
     
-    const images = useMemo(() => (item.data.images) || [], [item]);
-    const [mainImage, setMainImage] = useState(images[0] || PLACEHOLDER_IMAGE);
+    const images = useMemo(() => (item.type === 'product' ? item.data.images : (item.data.images || []).map(url => ({ url, zoom: 1, pos_x: 0.5, pos_y: 0.5 })) ) || [], [item]);
+    const [mainImage, setMainImage] = useState<ProductImage | null>(images[0] || null);
 
     useEffect(() => {
-        setMainImage(images[0] || PLACEHOLDER_IMAGE);
+        setMainImage(images[0] || null);
     }, [images]);
 
     const handleAddToCartClick = () => {
@@ -320,15 +366,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                 <button className="modal-close-button" onClick={onClose}>&times;</button>
                 <div className="product-detail">
                     <div className="product-detail-images">
-                        <img src={mainImage} alt={item.data.name} className="main-image" />
+                         <FramedImage image={mainImage} className="main-image" altText={item.data.name} />
                         {images.length > 1 && (
                             <div className="thumbnail-gallery">
                                 {images.map((img, index) => (
                                     <img 
                                         key={index}
-                                        src={img}
+                                        src={img.url}
                                         alt={`Thumbnail ${index + 1}`}
-                                        className={mainImage === img ? 'active' : ''}
+                                        className={mainImage?.url === img.url ? 'active' : ''}
                                         onClick={() => setMainImage(img)}
                                     />
                                 ))}
@@ -376,10 +422,16 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                         <p className="cart-empty">Seu carrinho está vazio.</p>
                     ) : (
                         cart.map(item => {
-                            const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
+                             const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
+                             const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
+
                             return (
                                 <div key={item.cartItemId} className={`cart-item ${removingItems.includes(item.cartItemId) ? 'removing' : ''}`}>
-                                    <img src={imageUrl} alt={item.data.name} />
+                                    {item.type === 'product' ? (
+                                        <FramedImage image={imageObject} className="cart-item-image" altText={item.data.name} />
+                                    ) : (
+                                        <img src={kitImageUrl || PLACEHOLDER_IMAGE} alt={item.data.name} className="cart-item-image" />
+                                    )}
                                     <div className="cart-item-info">
                                         <h4>{item.data.name} {item.type === 'kit' && '(Kit)'}</h4>
                                         {item.type === 'product' && item.selectedSize && item.data.sizes?.length > 0 && <p>Tamanho: {item.selectedSize}</p>}
@@ -462,11 +514,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [editingKit, setEditingKit] = useState<Kit | null>(null);
     const [editingHighlight, setEditingHighlight] = useState<Highlight | null>(null);
     const [editingCategoryName, setEditingCategoryName] = useState('');
+    const [editingProductImage, setEditingProductImage] = useState<{ index: number; data: ProductImage } | null>(null);
+    const [isHighlightEditorOpen, setIsHighlightEditorOpen] = useState(false);
+
 
     // Estados de Loading
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
-    const [updatingStockId, setUpdatingStockId] = useState<number | null>(null);
     
     // Drag and Drop
     const [draggedItem, setDraggedItem] = useState<{ list: string, index: number } | null>(null);
@@ -474,8 +528,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     // Formulário de produto
     const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
     const [imageFiles, setImageFiles] = useState<File[]>([]);
-    const [imagePreviews, setImagePreviews] = useState<string[]>([]);
-    const [existingImages, setExistingImages] = useState<string[]>([]);
+    const [imagePreviewObjects, setImagePreviewObjects] = useState<ProductImage[]>([]);
     
     // Formulário de Kit
     const [kitForm, setKitForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[] });
@@ -486,12 +539,14 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [kitProductSearch, setKitProductSearch] = useState('');
 
     // Formulário de Destaque
-    const [highlightForm, setHighlightForm] = useState({ type: 'product', product_id: '', title: '', subtitle: '', object_position: 'center center' });
+    const [highlightForm, setHighlightForm] = useState({ type: 'product' as 'product' | 'image', product_id: '', title: '', subtitle: '', zoom: 1, pos_x: 0.5, pos_y: 0.5 });
     const [highlightImageFile, setHighlightImageFile] = useState<File | null>(null);
     const [highlightImagePreview, setHighlightImagePreview] = useState<string | null>(null);
+    const highlightEditorRef = useRef<HTMLDivElement>(null);
 
     // Estado de Estoque
     const [stockLevels, setStockLevels] = useState<{ [key: number]: string }>({});
+    const [stockChanges, setStockChanges] = useState<{ [key: number]: number }>({});
 
     useEffect(() => {
         const initialStocks = initialProducts.reduce((acc, p) => {
@@ -499,6 +554,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             return acc;
         }, {});
         setStockLevels(initialStocks);
+        setStockChanges({});
     }, [initialProducts]);
 
 
@@ -517,8 +573,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 is_customizable: editingProduct.is_customizable,
                 custom_text_label: editingProduct.custom_text_label || 'Nome',
             });
-            setExistingImages(safeImages);
-            setImagePreviews(safeImages);
+            setImagePreviewObjects(safeImages);
             setImageFiles([]);
             setActiveView('products');
         } else {
@@ -549,13 +604,16 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     useEffect(() => {
         if (editingHighlight) {
-            setHighlightForm({
+            const initialFormState = {
                 type: editingHighlight.type,
                 product_id: editingHighlight.product_id?.toString() || '',
                 title: editingHighlight.title || '',
                 subtitle: editingHighlight.subtitle || '',
-                object_position: editingHighlight.object_position || 'center center'
-            });
+                zoom: editingHighlight.zoom || 1,
+                pos_x: editingHighlight.pos_x || 0.5,
+                pos_y: editingHighlight.pos_y || 0.5
+            };
+            setHighlightForm(initialFormState);
             setHighlightImageFile(null);
             setHighlightImagePreview(editingHighlight.image_url || null);
             setActiveView('highlights');
@@ -564,20 +622,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     }, [editingHighlight]);
 
-    useEffect(() => {
-        if (highlightImageFile) {
-            const previewUrl = URL.createObjectURL(highlightImageFile);
-            setHighlightImagePreview(previewUrl);
-            return () => URL.revokeObjectURL(previewUrl);
-        }
-    }, [highlightImageFile]);
-
 
     useEffect(() => {
         if (products.length > 0 && activeView === 'kits') {
             const productImages = products
                 .filter(p => selectedKitProducts.has(p.id))
-                .map(p => p.images?.[0])
+                .flatMap(p => p.images.map(img => img.url)) // Changed to handle ProductImage[]
                 .filter(Boolean);
     
             setKitImagePreviews(prev => {
@@ -590,10 +640,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     const resetProductForm = () => {
         setProductForm({ name: '', description: '', price: '', category_ids: [], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
-        imagePreviews.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
+        imagePreviewObjects.forEach(img => { if (img.url.startsWith('blob:')) URL.revokeObjectURL(img.url); });
         setImageFiles([]);
-        setImagePreviews([]);
-        setExistingImages([]);
+        setImagePreviewObjects([]);
         setEditingProduct(null);
     };
 
@@ -609,7 +658,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     };
 
     const resetHighlightForm = () => {
-        setHighlightForm({ type: 'product', product_id: '', title: '', subtitle: '', object_position: 'center center' });
+        setHighlightForm({ type: 'product', product_id: '', title: '', subtitle: '', zoom: 1, pos_x: 0.5, pos_y: 0.5 });
         setHighlightImageFile(null);
         setHighlightImagePreview(null);
         setEditingHighlight(null);
@@ -649,46 +698,70 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>, isKit: boolean) => {
         if (e.target.files) {
             const files = Array.from(e.target.files);
-            const newPreviews = files.map(file => URL.createObjectURL(file));
-
             if (isKit) {
+                const newPreviews = files.map(file => URL.createObjectURL(file));
                 setKitImageFiles(prev => [...prev, ...files]);
                 setKitImagePreviews(prev => [...prev, ...newPreviews]);
             } else {
                 setImageFiles(prev => [...prev, ...files]);
-                setImagePreviews(prev => [...prev, ...newPreviews]);
+                files.forEach(file => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const imageAspectRatio = img.width / img.height;
+                            const containerAspectRatio = 1; // Square
+                            const coverZoom = Math.max(1, containerAspectRatio / imageAspectRatio);
+                            const newImageObject: ProductImage = {
+                                url: URL.createObjectURL(file),
+                                zoom: coverZoom,
+                                pos_x: 0.5,
+                                pos_y: 0.5,
+                            };
+                            setImagePreviewObjects(prev => [...prev, newImageObject]);
+                        }
+                        img.src = event.target?.result as string;
+                    };
+                    reader.readAsDataURL(file);
+                });
             }
         }
     };
     
     const removeImage = (index: number, isKit: boolean) => {
-        const previews = isKit ? kitImagePreviews : imagePreviews;
-        const setPreviews = isKit ? setKitImagePreviews : setImagePreviews;
-        const setFiles = isKit ? setKitImageFiles : setImageFiles;
-        const existing = isKit ? kitExistingImages : existingImages;
-        const setExisting = isKit ? setKitExistingImages : setExistingImages;
-
-        const urlToRemove = previews[index];
-        
-        if (urlToRemove.startsWith('blob:')) {
-            const blobPreviews = previews.filter(p => p.startsWith('blob:'));
-            const fileIndex = blobPreviews.indexOf(urlToRemove);
-            if (fileIndex > -1) {
-                setFiles(prev => prev.filter((_, i) => i !== fileIndex));
+        if (isKit) {
+            // Kit image removal logic
+            const urlToRemove = kitImagePreviews[index];
+            if (urlToRemove.startsWith('blob:')) {
+                const blobPreviews = kitImagePreviews.filter(p => p.startsWith('blob:'));
+                const fileIndex = blobPreviews.indexOf(urlToRemove);
+                if (fileIndex > -1) {
+                    setKitImageFiles(prev => prev.filter((_, i) => i !== fileIndex));
+                }
+                URL.revokeObjectURL(urlToRemove);
+            } else {
+                setKitExistingImages(prev => prev.filter(img => img !== urlToRemove));
             }
-            URL.revokeObjectURL(urlToRemove);
+            setKitImagePreviews(prev => prev.filter((_, i) => i !== index));
         } else {
-            setExisting(prev => prev.filter(img => img !== urlToRemove));
+            // Product image removal logic
+            const imageToRemove = imagePreviewObjects[index];
+            if (imageToRemove.url.startsWith('blob:')) {
+                const blobUrls = imagePreviewObjects.map(p => p.url).filter(u => u.startsWith('blob:'));
+                const fileIndex = blobUrls.indexOf(imageToRemove.url);
+                if (fileIndex > -1) {
+                    setImageFiles(prev => prev.filter((_, i) => i !== fileIndex));
+                }
+                URL.revokeObjectURL(imageToRemove.url);
+            }
+            setImagePreviewObjects(prev => prev.filter((_, i) => i !== index));
         }
-        
-        setPreviews(prev => prev.filter((_, i) => i !== index));
     };
 
     const handleDragStart = (index: number, list: string) => {
         setDraggedItem({ list, index });
     };
 
-    // FIX: Changed the event type to HTMLElement to support both div and li elements for drag and drop.
     const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
         e.preventDefault();
     };
@@ -697,7 +770,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         if (!draggedItem || draggedItem.list !== list) return;
 
         let setter;
-        if (list === 'product_images') setter = setImagePreviews;
+        if (list === 'product_images') setter = setImagePreviewObjects;
         else if (list === 'kit_images') setter = setKitImagePreviews;
         else if (list === 'highlights') setter = setHighlights;
         else return;
@@ -708,7 +781,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             newItems.splice(index, 0, dragged);
             
             if (list === 'highlights') {
-                handleSaveHighlightOrder(newItems);
+                handleSaveHighlightOrder(newItems as Highlight[]);
             }
 
             return newItems;
@@ -803,40 +876,43 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         e.preventDefault();
         setIsSubmitting(true);
         
-        const uploadedImageUrls: string[] = [];
-        for (const file of imageFiles) {
+        const uploadedImageUrls: { [key: string]: string } = {};
+        const uploadPromises = imageFiles.map(async (file, index) => {
+            const blobUrl = imagePreviewObjects.filter(p => p.url.startsWith('blob:'))[index].url;
             const filePath = `public/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
-            const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
-            if (uploadError) {
-                alert('Erro ao fazer upload da imagem: ' + uploadError.message);
-                setIsSubmitting(false); return;
-            }
+            const { error } = await supabase.storage.from('product-images').upload(filePath, file);
+            if (error) throw new Error(`Erro no upload da imagem: ${error.message}`);
             const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-            uploadedImageUrls.push(data.publicUrl);
+            uploadedImageUrls[blobUrl] = data.publicUrl;
+        });
+
+        try {
+            await Promise.all(uploadPromises);
+        } catch (error) {
+            alert((error as Error).message);
+            setIsSubmitting(false); return;
         }
 
         if (editingProduct) {
-            const imagesToRemove = (editingProduct.images || []).filter(img => !existingImages.includes(img));
-            if (imagesToRemove.length > 0) {
-                const imagePaths = imagesToRemove.map(url => new URL(url).pathname.split('/product-images/')[1]);
+            const originalUrls = (editingProduct.images || []).map(img => img.url);
+            const currentUrls = imagePreviewObjects.filter(p => !p.url.startsWith('blob:')).map(p => p.url);
+            const urlsToRemove = originalUrls.filter(url => !currentUrls.includes(url));
+            if (urlsToRemove.length > 0) {
+                const imagePaths = urlsToRemove.map(url => new URL(url).pathname.split('/product-images/')[1]);
                 await supabase.storage.from('product-images').remove(imagePaths);
             }
         }
         
-        const blobPreviews = imagePreviews.filter(url => url.startsWith('blob:'));
-        const finalImageUrls = imagePreviews.map(url => {
-            if (url.startsWith('blob:')) {
-                const index = blobPreviews.indexOf(url);
-                return uploadedImageUrls[index];
-            }
-            return url;
-        });
+        const finalImages: ProductImage[] = imagePreviewObjects.map(imgObj => ({
+            ...imgObj,
+            url: uploadedImageUrls[imgObj.url] || imgObj.url
+        }));
 
         const productData = {
             name: productForm.name,
             description: productForm.description,
             price: parseFloat(productForm.price),
-            images: finalImageUrls,
+            images: finalImages,
             sizes: productForm.has_sizes ? productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [],
             is_customizable: productForm.is_customizable,
             custom_text_label: productForm.is_customizable ? productForm.custom_text_label : null,
@@ -854,14 +930,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             savedProduct = data;
         }
 
-        const finalProduct = { ...savedProduct, category_ids: savedProduct.category_ids || [], stock: savedProduct.stock ?? 0 };
+        const finalProduct: Product = { ...savedProduct, category_ids: savedProduct.category_ids || [], stock: savedProduct.stock ?? 0, images: savedProduct.images || [] };
 
-        let newProducts;
-        if (editingProduct) {
-            newProducts = products.map(p => p.id === finalProduct.id ? finalProduct : p);
-        } else {
-            newProducts = [...products, finalProduct];
-        }
+        const newProducts = editingProduct
+            ? products.map(p => p.id === finalProduct.id ? finalProduct : p)
+            : [...products, finalProduct];
+        
         setProducts(newProducts);
         onDataChange(newProducts, categories, kits, highlights);
         resetProductForm();
@@ -882,10 +956,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             const confirmMessage = `Este produto está nos seguintes kits: ${kitNames}.\n\nDeseja removê-lo desses kits e excluir o produto permanentemente?`;
 
             if (!window.confirm(confirmMessage)) {
-                return; // User cancelled the operation
+                return; 
             }
 
-            // User confirmed, so first remove product from all kits
             const { error: assocError } = await supabase
                 .from('kit_products')
                 .delete()
@@ -897,22 +970,19 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 return;
             }
         } else {
-            // Standard confirmation for products not in any kit
             if (!window.confirm('Tem certeza que deseja excluir este produto?')) {
                 return;
             }
         }
 
-        // Proceed with deletion
         setDeletingItemId(`prod-${productId}`);
         try {
-            // Delete images from storage
             if (productToDelete.images?.length > 0) {
-                const imagePaths = productToDelete.images.map(url => {
+                const imagePaths = productToDelete.images.map(img => {
                     try {
-                        return new URL(url).pathname.split('/product-images/')[1];
+                        return new URL(img.url).pathname.split('/product-images/')[1];
                     } catch (e) {
-                        console.warn('URL de imagem inválida, pulando exclusão:', url);
+                        console.warn('URL de imagem inválida, pulando exclusão:', img.url);
                         return null;
                     }
                 }).filter(Boolean) as string[];
@@ -922,7 +992,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 }
             }
 
-            // Delete product from database
             const { error: deleteError } = await supabase.from('products').delete().eq('id', productId);
 
             if (deleteError) {
@@ -1072,44 +1141,72 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const handleStockChange = (productId: number, value: string) => {
         if (/^\d*$/.test(value)) {
             setStockLevels(prev => ({ ...prev, [productId]: value }));
+
+            const originalProduct = initialProducts.find(p => p.id === productId);
+            const newStockValue = value === '' ? 0 : parseInt(value, 10);
+
+            if (originalProduct && originalProduct.stock !== newStockValue) {
+                setStockChanges(prev => ({ ...prev, [productId]: newStockValue }));
+            } else {
+                setStockChanges(prev => {
+                    const newChanges = { ...prev };
+                    delete newChanges[productId];
+                    return newChanges;
+                });
+            }
         }
     };
 
-    const handleUpdateStock = async (productId: number) => {
-        const newStockString = stockLevels[productId];
-        if (newStockString === null || newStockString === undefined || newStockString.trim() === '') {
-            alert('O campo de estoque não pode estar vazio.');
-            return;
-        }
-        const newStock = parseInt(newStockString, 10);
+    const handleBulkUpdateStock = async () => {
+        const changesCount = Object.keys(stockChanges).length;
+        if (changesCount === 0) return;
 
-        if (isNaN(newStock) || newStock < 0) {
-            alert('Por favor, insira um valor de estoque válido (número inteiro maior ou igual a 0).');
-            return;
-        }
+        setIsSubmitting(true);
+        const updates = Object.entries(stockChanges).map(([productId, stock]) => ({
+            id: parseInt(productId, 10),
+            stock: stock,
+        }));
 
-        setUpdatingStockId(productId);
-        const { data: updatedProduct, error } = await supabase
-            .from('products')
-            .update({ stock: newStock })
-            .eq('id', productId)
-            .select()
-            .single();
-        setUpdatingStockId(null);
+        const { error } = await supabase.from('products').upsert(updates);
+        setIsSubmitting(false);
 
         if (error) {
-            alert('Erro ao atualizar o estoque: ' + error.message);
+            alert(`Erro ao salvar as alterações de estoque: ${error.message}`);
         } else {
-            const newProducts = products.map(p => p.id === productId ? updatedProduct : p);
+            const updatedProductIds = new Set(updates.map(u => u.id));
+            const newProducts = products.map(p => {
+                if (updatedProductIds.has(p.id)) {
+                    return { ...p, stock: stockChanges[p.id] };
+                }
+                return p;
+            });
             setProducts(newProducts);
             onDataChange(newProducts, categories, kits, highlights);
+            setStockChanges({});
+            alert(`${changesCount} produto(s) atualizado(s) com sucesso!`);
         }
     };
     
     const handleHighlightFormChange = (e) => {
         const { name, value, type, files } = e.target;
         if (type === 'file') {
-            setHighlightImageFile(files[0]);
+            const file = files[0];
+            if (file) {
+                setHighlightImageFile(file);
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const imageAspectRatio = img.width / img.height;
+                        const containerAspectRatio = 16 / 7;
+                        const coverZoom = Math.max(1, containerAspectRatio / imageAspectRatio);
+                        setHighlightForm(prev => ({ ...prev, zoom: coverZoom, pos_x: 0.5, pos_y: 0.5 }));
+                    };
+                    img.src = event.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+                setHighlightImagePreview(URL.createObjectURL(file));
+            }
         } else {
             setHighlightForm(prev => ({ ...prev, [name]: value }));
         }
@@ -1120,10 +1217,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         setIsSubmitting(true);
 
         const highlightData: Partial<Highlight> = {
-            type: highlightForm.type as 'product' | 'image',
+            type: highlightForm.type,
             title: highlightForm.title,
             subtitle: highlightForm.subtitle,
-            object_position: highlightForm.object_position
+            zoom: highlightForm.zoom,
+            pos_x: highlightForm.pos_x,
+            pos_y: highlightForm.pos_y,
         };
 
         if (highlightForm.type === 'product') {
@@ -1145,8 +1244,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 }
                 const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
                 highlightData.image_url = data.publicUrl;
-            } else if (!editingHighlight || !editingHighlight.image_url) {
-                alert('Por favor, selecione uma imagem.');
+            } else if (editingHighlight?.image_url) {
+                highlightData.image_url = editingHighlight.image_url;
+            } else {
+                 alert('Por favor, selecione uma imagem.');
                 setIsSubmitting(false); return;
             }
         }
@@ -1179,7 +1280,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         setDeletingItemId(`hl-${highlightId}`);
         const highlightToDelete = highlights.find(h => h.id === highlightId);
 
-        // Delete image from storage if it's a custom image highlight
         if (highlightToDelete?.type === 'image' && highlightToDelete.image_url) {
             try {
                 const imagePath = new URL(highlightToDelete.image_url).pathname.split('/product-images/')[1];
@@ -1214,12 +1314,97 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         
         if (hasError) {
             alert('Ocorreu um erro ao salvar a nova ordem dos destaques.');
-            // Optionally, revert local state to `initialHighlights` to stay in sync with DB
         } else {
              onDataChange(products, categories, kits, orderedHighlights);
         }
     };
+    
+    // --- Reusable Image Editor Component ---
+    const ImageCropEditorModal = ({ image, onSave, onCancel, aspectRatio = '1 / 1' }: { image: ProductImage; onSave: (data: Partial<ProductImage>) => void; onCancel: () => void; aspectRatio?: string; }) => {
+        const [zoom, setZoom] = useState(image.zoom);
+        const [posX, setPosX] = useState(image.pos_x);
+        const [posY, setPosY] = useState(image.pos_y);
 
+        const editorRef = useRef<HTMLDivElement>(null);
+        const isDraggingRef = useRef(false);
+        const dragStartPosRef = useRef({ x: 0, y: 0, initialPosX: 0.5, initialPosY: 0.5 });
+
+        const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+            e.preventDefault();
+            isDraggingRef.current = true;
+            dragStartPosRef.current = { x: e.clientX, y: e.clientY, initialPosX: posX, initialPosY: posY };
+        };
+
+        const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+            if (!isDraggingRef.current || !editorRef.current) return;
+            e.preventDefault();
+
+            const containerRect = editorRef.current.getBoundingClientRect();
+            const deltaX = e.clientX - dragStartPosRef.current.x;
+            const deltaY = e.clientY - dragStartPosRef.current.y;
+
+            const moveFactorX = deltaX / (containerRect.width * Math.max(1, zoom - 1));
+            const moveFactorY = deltaY / (containerRect.height * Math.max(1, zoom - 1));
+            
+            const newPosX = Math.max(0, Math.min(1, dragStartPosRef.current.initialPosX - moveFactorX));
+            const newPosY = Math.max(0, Math.min(1, dragStartPosRef.current.initialPosY - moveFactorY));
+            
+            setPosX(newPosX);
+            setPosY(newPosY);
+        };
+
+        const handleMouseUpOrLeave = () => {
+            isDraggingRef.current = false;
+        };
+
+        return (
+            <div className="modal-overlay">
+                <div className="modal-content image-editor-modal" onClick={e => e.stopPropagation()}>
+                     <button className="modal-close-button" onClick={onCancel}>&times;</button>
+                     <h3>Editar Enquadramento da Imagem</h3>
+                     <div className="highlight-preview-container">
+                        <div
+                            className="highlight-preview-editor"
+                            ref={editorRef}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUpOrLeave}
+                            onMouseLeave={handleMouseUpOrLeave}
+                            style={{ 
+                                cursor: isDraggingRef.current ? 'grabbing' : 'grab',
+                                aspectRatio: aspectRatio
+                            }}
+                        >
+                            <div
+                                className="highlight-preview-image"
+                                style={{
+                                    backgroundImage: `url(${image.url})`,
+                                    backgroundSize: `${zoom * 100}%`,
+                                    backgroundPosition: `${posX * 100}% ${posY * 100}%`,
+                                }}
+                            />
+                        </div>
+                        <div className="zoom-control">
+                            <label htmlFor="zoom-slider-modal">Zoom</label>
+                            <input
+                                id="zoom-slider-modal"
+                                type="range"
+                                min="0.1"
+                                max="10"
+                                step="0.01"
+                                value={zoom}
+                                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                            />
+                        </div>
+                     </div>
+                     <div className="admin-form-actions">
+                        <button className="admin-button" onClick={() => onSave({ zoom, pos_x: posX, pos_y: posY })}>Salvar</button>
+                        <button className="admin-button cancel" onClick={onCancel}>Cancelar</button>
+                     </div>
+                </div>
+            </div>
+        );
+    };
 
     const categoriesWithoutAll = categories.filter(c => c.id !== 1);
 
@@ -1235,6 +1420,21 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     
     const renderProductsView = () => (
          <div className="admin-view">
+            {editingProductImage && (
+                <ImageCropEditorModal 
+                    image={editingProductImage.data}
+                    aspectRatio="1 / 1"
+                    onCancel={() => setEditingProductImage(null)}
+                    onSave={(newCrop) => {
+                        setImagePreviewObjects(current => 
+                            current.map((img, index) => 
+                                index === editingProductImage.index ? { ...img, ...newCrop } : img
+                            )
+                        );
+                        setEditingProductImage(null);
+                    }}
+                />
+            )}
             <button onClick={() => setActiveView('menu')} className="admin-back-button">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
@@ -1250,13 +1450,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         <div className="form-group"><label htmlFor="productPrice">Preço (ex: 99.90)</label><input type="number" id="productPrice" name="price" value={productForm.price} onChange={handleFormChange} step="0.01" required /></div>
                         
                         <div className="form-group">
-                            <label htmlFor="productImages">Imagens do Produto</label>
+                            <label htmlFor="productImages">Imagens do Produto (arraste para reordenar)</label>
                             <input type="file" id="productImages" multiple accept="image/*" onChange={(e) => handleImageSelect(e, false)} />
                         </div>
                         <div className="image-previews">
-                            {imagePreviews.map((src, index) => (
+                            {imagePreviewObjects.map((imgObj, index) => (
                                 <div 
-                                    key={src + index} 
+                                    key={imgObj.url + index} 
                                     className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''}`}
                                     draggable
                                     onDragStart={() => handleDragStart(index, 'product_images')}
@@ -1265,8 +1465,11 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                     onDragEnd={handleDragEnd}
                                 >
                                     <span className="image-order-badge">{index + 1}</span>
-                                    <img src={src} alt={`Preview ${index + 1}`} />
-                                    <button type="button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
+                                    <FramedImage image={imgObj} className="preview-framed-image" altText={`Preview ${index + 1}`} />
+                                    <div className="image-preview-actions">
+                                        <button type="button" className="edit-crop-button" onClick={() => setEditingProductImage({index, data: imgObj})}>Editar</button>
+                                        <button type="button" className="remove-image-button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -1327,10 +1530,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         ) : (
                             <ul className="item-list product-list">
                                 {products.map(product => {
-                                    const imageUrl = (product.images && product.images.length > 0) ? product.images[0] : PLACEHOLDER_IMAGE;
+                                    const imageObject = product.images?.[0];
                                     return (
                                         <li key={product.id}>
-                                            <img src={imageUrl} alt={product.name} className="item-list-img" />
+                                            <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
                                             <div className="item-list-details">
                                                 <span className="item-list-name">{product.name}</span>
                                                 <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
@@ -1459,7 +1662,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                 >
                                     <span className="image-order-badge">{index + 1}</span>
                                     <img src={src} alt={`Preview ${index + 1}`} />
-                                    <button type="button" onClick={() => removeImage(index, true)} aria-label="Remover imagem">&times;</button>
+                                    <div className="image-preview-actions">
+                                        <button type="button" className="remove-image-button" onClick={() => removeImage(index, true)} aria-label="Remover imagem">&times;</button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -1475,20 +1680,19 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                             />
                             <div className="product-selection-grid">
                                 {filteredKitProducts.length > 0 ? filteredKitProducts.map(p => {
-                                    const imageUrl = (p.images && p.images.length > 0) ? p.images[0] : PLACEHOLDER_IMAGE;
+                                    const imageObject = (p.images && p.images.length > 0) ? p.images[0] : null;
                                     return (
                                         <div 
                                             key={p.id} 
                                             className={`product-selection-item ${selectedKitProducts.has(p.id) ? 'selected' : ''}`}
                                             onClick={() => handleKitProductToggle(p.id)}
                                         >
-                                            <img src={imageUrl} alt={p.name} />
+                                            <FramedImage image={imageObject} className="product-selection-image" altText={p.name} />
                                             <span>{p.name}</span>
                                         </div>
                                     )
                                 }) : <p className="empty-list-message">Nenhum produto encontrado.</p>}
                             </div>
-                            <small>As imagens dos produtos selecionados serão adicionadas automaticamente ao kit.</small>
                         </div>
 
                         <div className="admin-form-actions">
@@ -1542,17 +1746,26 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 Voltar ao Menu
             </button>
             <section className="admin-section">
-                <h3>Gerenciar Estoque</h3>
+                <div className="admin-section-header">
+                    <h3>Gerenciar Estoque</h3>
+                    <button
+                        className="admin-button"
+                        onClick={handleBulkUpdateStock}
+                        disabled={Object.keys(stockChanges).length === 0 || isSubmitting}
+                    >
+                        {isSubmitting ? 'Salvando...' : 'Salvar Todas as Alterações'}
+                    </button>
+                </div>
                 <p>Atualize a quantidade de cada produto em seu inventário.</p>
                 {products.length === 0 ? (
                     <p className="empty-list-message">Nenhum produto cadastrado para gerenciar o estoque.</p>
                 ) : (
                     <ul className="item-list stock-list">
                         {products.map(product => {
-                             const imageUrl = (product.images && product.images.length > 0) ? product.images[0] : PLACEHOLDER_IMAGE;
+                             const imageObject = (product.images && product.images.length > 0) ? product.images[0] : null;
                             return (
                                 <li key={product.id}>
-                                    <img src={imageUrl} alt={product.name} className="item-list-img" />
+                                    <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
                                     <div className="item-list-details">
                                         <span className="item-list-name">{product.name}</span>
                                         <div className="stock-controls">
@@ -1565,9 +1778,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                                 onChange={(e) => handleStockChange(product.id, e.target.value)}
                                                 className="stock-input"
                                             />
-                                            <button onClick={() => handleUpdateStock(product.id)} className="stock-update-button" disabled={updatingStockId === product.id}>
-                                                {updatingStockId === product.id ? '...' : 'Salvar'}
-                                            </button>
                                         </div>
                                     </div>
                                 </li>
@@ -1584,27 +1794,32 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             if (highlight.type === 'product' && highlight.product_id) {
                 const product = products.find(p => p.id === highlight.product_id);
                 return {
-                    image: product?.images?.[0] || PLACEHOLDER_IMAGE,
+                    image: product?.images?.[0] ?? null,
                     title: product?.name || 'Produto não encontrado',
                     subtitle: `Produto - R$ ${product?.price.toFixed(2).replace('.',',') || 'N/A'}`
                 };
             } else {
                  return {
-                    image: highlight.image_url || PLACEHOLDER_IMAGE,
+                    image: { url: highlight.image_url || '', zoom: highlight.zoom, pos_x: highlight.pos_x, pos_y: highlight.pos_y },
                     title: highlight.title || 'Imagem Personalizada',
                     subtitle: highlight.subtitle || ''
                 };
             }
         };
 
-        const focalPointPositions = [
-            'top left', 'top center', 'top right',
-            'center left', 'center center', 'center right',
-            'bottom left', 'bottom center', 'bottom right'
-        ];
-
         return (
             <div className="admin-view">
+                 {isHighlightEditorOpen && highlightImagePreview && (
+                     <ImageCropEditorModal 
+                        image={{ url: highlightImagePreview, zoom: highlightForm.zoom, pos_x: highlightForm.pos_x, pos_y: highlightForm.pos_y }}
+                        aspectRatio="16 / 7"
+                        onCancel={() => setIsHighlightEditorOpen(false)}
+                        onSave={(newCrop) => {
+                            setHighlightForm(prev => ({...prev, ...newCrop}));
+                            setIsHighlightEditorOpen(false);
+                        }}
+                     />
+                 )}
                 <button onClick={() => setActiveView('menu')} className="admin-back-button">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
                     Voltar ao Menu
@@ -1632,10 +1847,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                             ) : (
                                 <>
                                     <div className="form-group">
-                                        <label htmlFor="highlightImage">Imagem</label>
-                                        <input type="file" id="highlightImage" name="image" accept="image/*" onChange={handleHighlightFormChange} />
-                                    </div>
-                                    <div className="form-group">
                                         <label htmlFor="title">Título (opcional)</label>
                                         <input type="text" id="title" name="title" value={highlightForm.title} onChange={handleHighlightFormChange} />
                                     </div>
@@ -1643,29 +1854,31 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                         <label htmlFor="subtitle">Subtítulo (opcional)</label>
                                         <input type="text" id="subtitle" name="subtitle" value={highlightForm.subtitle} onChange={handleHighlightFormChange} />
                                     </div>
+                                    <div className="form-group">
+                                        <label htmlFor="highlightImage">Imagem</label>
+                                        <input type="file" id="highlightImage" name="image" accept="image/*" onChange={handleHighlightFormChange} />
+                                    </div>
+
                                     {highlightImagePreview && (
-                                        <div className="highlight-preview-container">
+                                        <div className="highlight-preview-container admin-form-preview">
                                             <h4>Pré-visualização do Enquadramento</h4>
-                                            <img 
-                                                src={highlightImagePreview} 
-                                                className="highlight-preview-image"
-                                                style={{ objectPosition: highlightForm.object_position }}
-                                                alt="Pré-visualização do destaque"
-                                            />
-                                            <div className="focal-point-selector">
-                                                <label>Ponto Focal (clique para ajustar)</label>
-                                                <div className="focal-point-grid">
-                                                    {focalPointPositions.map(pos => (
-                                                        <button 
-                                                            type="button" 
-                                                            key={pos} 
-                                                            className={`focal-point-button ${highlightForm.object_position === pos ? 'active' : ''}`}
-                                                            onClick={() => setHighlightForm(prev => ({ ...prev, object_position: pos }))}
-                                                            aria-label={`Definir ponto focal para ${pos}`}
-                                                        />
-                                                    ))}
+                                            <button
+                                                type="button"
+                                                className="highlight-preview-interactive-wrapper"
+                                                onClick={() => setIsHighlightEditorOpen(true)}
+                                            >
+                                                <div
+                                                    className="highlight-preview-editor"
+                                                    style={{
+                                                        backgroundImage: `url(${highlightImagePreview})`,
+                                                        backgroundSize: `${highlightForm.zoom * 100}%`,
+                                                        backgroundPosition: `${highlightForm.pos_x * 100}% ${highlightForm.pos_y * 100}%`,
+                                                    }}
+                                                />
+                                                <div className="preview-edit-overlay">
+                                                    <span>Ajustar Enquadramento</span>
                                                 </div>
-                                            </div>
+                                            </button>
                                         </div>
                                     )}
                                 </>
@@ -1701,16 +1914,16 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                             onDragEnd={handleDragEnd}
                                         >
                                             <span className="drag-handle">::</span>
-                                            <img src={image} alt={title} className="item-list-img" />
+                                            <FramedImage image={image} className="item-list-img" altText={title} />
                                             <div className="item-list-details">
                                                 <span className="item-list-name">{title}</span>
                                                 <small>{subtitle}</small>
-                                            </div>
-                                            <div className="item-list-actions">
-                                                 <button onClick={() => setEditingHighlight(highlight)} className="item-list-edit-button">Editar</button>
-                                                <button onClick={() => handleDeleteHighlight(highlight.id)} className="item-list-delete-button" disabled={deletingItemId === `hl-${highlight.id}`}>
-                                                    {deletingItemId === `hl-${highlight.id}` ? '...' : 'Excluir'}
-                                                </button>
+                                                <div className="item-list-actions">
+                                                     <button onClick={() => setEditingHighlight(highlight)} className="item-list-edit-button">Editar</button>
+                                                    <button onClick={() => handleDeleteHighlight(highlight.id)} className="item-list-delete-button" disabled={deletingItemId === `hl-${highlight.id}`}>
+                                                        {deletingItemId === `hl-${highlight.id}` ? '...' : 'Excluir'}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </li>
                                     );
@@ -1773,6 +1986,7 @@ const App = () => {
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number>(1); // 1 = 'Todos'
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortOption, setSortOption] = useState('default');
     const [selectedDisplayItem, setSelectedDisplayItem] = useState<DisplayItem | null>(null);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -1803,15 +2017,14 @@ const App = () => {
             const { data: kitProductsData, error: kitProductsError } = await supabase.from('kit_products').select('*');
             if(kitProductsError) console.error('Erro ao buscar produtos dos kits:', kitProductsError.message);
 
-            // Process products with their categories from the product table itself
             const localProducts: Product[] = (productsData || []).map(p => ({
                 ...p,
-                category_ids: p.category_ids || [], // Ensure category_ids is always an array
-                stock: p.stock ?? 0, // Ensure stock is always a number
+                images: p.images || [],
+                category_ids: p.category_ids || [], 
+                stock: p.stock ?? 0,
             }));
             setProducts(localProducts);
 
-            // Process highlights
             if (highlightsData && localProducts) {
                 const displayHighlights: DisplayHighlight[] = highlightsData.map(h => {
                     if (h.type === 'product' && h.product_id) {
@@ -1823,7 +2036,6 @@ const App = () => {
                 setHighlights(displayHighlights);
             }
 
-            // Process kits
             if (kitsData && localProducts && kitProductsData) {
                  const kitsWithProducts: Kit[] = kitsData.map(kit => {
                     let parsedDescription = kit.description;
@@ -2011,7 +2223,7 @@ const App = () => {
         if (lowercasedQuery) {
             return displayItems.filter(item =>
                 item.data.name.toLowerCase().includes(lowercasedQuery) ||
-                item.data.description.toLowerCase().includes(lowercasedQuery)
+                (item.data.description && item.data.description.toLowerCase().includes(lowercasedQuery))
             );
         }
 
@@ -2021,6 +2233,22 @@ const App = () => {
 
         return displayItems.filter(item => (item.data.category_ids || []).includes(selectedCategory));
     }, [displayItems, searchQuery, selectedCategory]);
+
+    const sortedDisplayItems = useMemo(() => {
+        const sortableItems = [...filteredDisplayItems];
+        switch (sortOption) {
+            case 'price-asc':
+                return sortableItems.sort((a, b) => a.data.price - b.data.price);
+            case 'price-desc':
+                return sortableItems.sort((a, b) => b.data.price - a.data.price);
+            case 'name-asc':
+                return sortableItems.sort((a, b) => a.data.name.localeCompare(b.data.name));
+            case 'name-desc':
+                return sortableItems.sort((a, b) => b.data.name.localeCompare(a.data.name));
+            default:
+                return sortableItems;
+        }
+    }, [filteredDisplayItems, sortOption]);
 
     const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
     
@@ -2044,16 +2272,34 @@ const App = () => {
             />
             <main>
                 <Carousel items={highlights} onProductClick={setSelectedDisplayItem} />
-                <div className="category-filters">
-                    {categories.map(cat => (
-                        <button
-                            key={cat.id}
-                            className={`category-button ${selectedCategory === cat.id ? 'active' : ''}`}
-                            onClick={() => handleCategoryClick(cat.id)}
+                <div className="main-controls-container">
+                    <div className="category-filters">
+                        {categories.map(cat => (
+                            <button
+                                key={cat.id}
+                                className={`category-button ${selectedCategory === cat.id ? 'active' : ''}`}
+                                onClick={() => handleCategoryClick(cat.id)}
+                            >
+                                {cat.name}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="sort-control">
+                        <label htmlFor="sort-select" className="sr-only">Ordenar por</label>
+                        <select
+                            id="sort-select"
+                            className="sort-select"
+                            value={sortOption}
+                            onChange={(e) => setSortOption(e.target.value)}
+                            aria-label="Ordenar produtos"
                         >
-                            {cat.name}
-                        </button>
-                    ))}
+                            <option value="default">Padrão</option>
+                            <option value="price-asc">Menor Preço</option>
+                            <option value="price-desc">Maior Preço</option>
+                            <option value="name-asc">Nome (A-Z)</option>
+                            <option value="name-desc">Nome (Z-A)</option>
+                        </select>
+                    </div>
                 </div>
 
                 {isLoading ? (
@@ -2062,8 +2308,8 @@ const App = () => {
                     </div>
                 ) : (
                     <div className="product-grid">
-                        {filteredDisplayItems.length > 0 ? (
-                            filteredDisplayItems.map(item => (
+                        {sortedDisplayItems.length > 0 ? (
+                            sortedDisplayItems.map(item => (
                                 <ProductCard key={`${item.type}-${item.data.id}`} item={item} onProductClick={setSelectedDisplayItem} />
                             ))
                         ) : (
