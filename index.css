@@ -1,3 +1,4 @@
+
 :root {
     --primary-color: #5A6D3B; /* Verde Oliva Principal */
     --secondary-color: #696969; /* Cinza Escuro */
@@ -171,14 +172,120 @@ main {
     padding: 2rem;
 }
 
-.main-banner {
+/* Carousel / Highlights */
+.carousel-container {
     width: 100%;
-    height: auto;
-    max-height: 400px;
-    object-fit: contain;
+    max-width: 1200px;
+    margin: 0 auto 2rem auto;
+    aspect-ratio: 16 / 7;
+    position: relative;
+    overflow: hidden;
     border-radius: var(--border-radius);
-    margin-bottom: 2rem;
     box-shadow: var(--box-shadow);
+    background-color: #e0e0e0;
+}
+
+.carousel-slide-container {
+    display: flex;
+    height: 100%;
+    transition: transform 0.5s ease-in-out;
+}
+
+.carousel-slide-wrapper {
+    flex-shrink: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.carousel-slide {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+.carousel-slide.clickable {
+    cursor: pointer;
+}
+
+.carousel-slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.carousel-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+    color: white;
+    padding: 3rem 2rem 2rem 2rem;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+}
+
+.carousel-content h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+.carousel-content p {
+    font-size: 1.2rem;
+}
+.carousel-content .price {
+    font-size: 1.5rem;
+    font-weight: bold;
+    display: block;
+    margin-top: 0.5rem;
+}
+
+.carousel-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
+    border: none;
+    font-size: 2rem;
+    cursor: pointer;
+    z-index: 10;
+    padding: 0.5rem 1rem;
+    transition: background-color 0.2s;
+}
+
+.carousel-arrow:hover {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
+.carousel-arrow.left {
+    left: 10px;
+    border-radius: 0 5px 5px 0;
+}
+
+.carousel-arrow.right {
+    right: 10px;
+    border-radius: 5px 0 0 5px;
+}
+
+.carousel-dots {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+}
+
+.dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.5);
+    cursor: pointer;
+    transition: background-color 0.3s;
+    border: 1px solid rgba(0,0,0,0.2);
+}
+
+.dot.active {
+    background-color: white;
 }
 
 /* Category Filters */
@@ -864,7 +971,7 @@ main {
 }
 
 
-.product-list li, .stock-list li {
+.product-list li, .stock-list li, .highlights-admin-list li {
     justify-content: flex-start;
     gap: 1rem;
 }
@@ -990,7 +1097,7 @@ main {
     transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.image-preview-item.dragging {
+.image-preview-item.dragging, .highlights-admin-list li.dragging {
     opacity: 0.5;
     transform: scale(1.05);
 }
@@ -1169,6 +1276,23 @@ main {
 }
 
 
+/* Highlights Admin List */
+.highlights-admin-list li {
+    cursor: grab;
+}
+.highlights-admin-list li .item-list-details small {
+    color: var(--secondary-color);
+    font-size: 0.8rem;
+}
+.drag-handle {
+    cursor: grab;
+    color: #ccc;
+    font-size: 1.5rem;
+    line-height: 1;
+    margin-right: -0.5rem;
+}
+
+
 /* Footer Styles */
 .site-footer {
     background-color: var(--dark-color);
@@ -1322,6 +1446,9 @@ main {
     main {
         padding: 1rem;
     }
+    .carousel-content h1 { font-size: 1.8rem; }
+    .carousel-content p { font-size: 1rem; }
+    
     .product-detail {
         flex-direction: column;
         padding: 1.5rem;

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -32,6 +33,21 @@ interface Kit {
     products: Product[];
     category_ids: number[];
 }
+
+interface Highlight {
+    id: number;
+    type: 'product' | 'image';
+    product_id: number | null;
+    image_url: string | null;
+    title: string | null;
+    subtitle: string | null;
+    sort_order: number;
+}
+
+interface DisplayHighlight extends Highlight {
+    product?: Product;
+}
+
 
 type DisplayItem =
     | { type: 'product'; data: Product }
@@ -68,7 +84,6 @@ const WHATSAPP_NUMBER = '5531993925289'; // Número do WhatsApp para receber os 
 const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+Imagem';
 const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
-const BANNER_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/Principal.png';
 
 // --- COMPONENTES DA UI ---
 
@@ -112,6 +127,96 @@ const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating, sear
         </button>
     </header>
 );
+
+const Carousel = ({ items, onProductClick }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+
+    const goToPrevious = () => {
+        const isFirstSlide = currentIndex === 0;
+        const newIndex = isFirstSlide ? items.length - 1 : currentIndex - 1;
+        setCurrentIndex(newIndex);
+    };
+
+    const goToNext = () => {
+        const isLastSlide = currentIndex === items.length - 1;
+        const newIndex = isLastSlide ? 0 : currentIndex + 1;
+        setCurrentIndex(newIndex);
+    };
+    
+    const goToSlide = (slideIndex) => {
+        setCurrentIndex(slideIndex);
+    };
+
+    useEffect(() => {
+        if (items.length > 1) {
+            const timer = setTimeout(() => {
+                goToNext();
+            }, 5000); // Change slide every 5 seconds
+            return () => clearTimeout(timer);
+        }
+    }, [currentIndex, items.length]);
+
+    if (!items || items.length === 0) {
+        return <div className="carousel-container placeholder"></div>;
+    }
+
+    const currentItem = items[currentIndex];
+
+    const getSlideContent = (item: DisplayHighlight) => {
+        let imageUrl, title, subtitle, price, isClickable = false, clickHandler = () => {};
+
+        if (item.type === 'product' && item.product) {
+            imageUrl = item.product.images?.[0] || PLACEHOLDER_IMAGE;
+            title = item.product.name;
+            price = item.product.price;
+            isClickable = true;
+            clickHandler = () => onProductClick({ type: 'product', data: item.product });
+        } else if (item.type === 'image') {
+            imageUrl = item.image_url;
+            title = item.title;
+            subtitle = item.subtitle;
+        }
+
+        return (
+            <div className={`carousel-slide ${isClickable ? 'clickable' : ''}`} onClick={clickHandler}>
+                <img src={imageUrl} alt={title || 'Destaque'} />
+                {(title || subtitle || price) && (
+                    <div className="carousel-content">
+                        {title && <h1>{title}</h1>}
+                        {subtitle && <p>{subtitle}</p>}
+                        {price && <span className="price">R$ {price.toFixed(2).replace('.', ',')}</span>}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    return (
+        <div className="carousel-container">
+            {items.length > 1 && <button onClick={goToPrevious} className="carousel-arrow left" aria-label="Destaque anterior">&#10094;</button>}
+            <div className="carousel-slide-container" style={{ transform: `translateX(-${currentIndex * 100}%)` }}>
+                {items.map((item) => (
+                    <div className="carousel-slide-wrapper" key={item.id}>
+                        {getSlideContent(item)}
+                    </div>
+                ))}
+            </div>
+            {items.length > 1 && <button onClick={goToNext} className="carousel-arrow right" aria-label="Próximo destaque">&#10095;</button>}
+            {items.length > 1 && (
+                <div className="carousel-dots">
+                    {items.map((_, slideIndex) => (
+                        <div
+                            key={slideIndex}
+                            className={`dot ${currentIndex === slideIndex ? 'active' : ''}`}
+                            onClick={() => goToSlide(slideIndex)}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
     const imageUrl = (item.data.images && item.data.images.length > 0) ? item.data.images[0] : PLACEHOLDER_IMAGE;
@@ -341,13 +446,14 @@ const AdminLogin = ({ onLogin, onBackToStore }) => {
     );
 };
 
-const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDataChange, onBackToStore }) => {
+const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initialHighlights, onDataChange, onBackToStore }) => {
     const [products, setProducts] = useState<Product[]>(initialProducts);
     const [categories, setCategories] = useState<Category[]>(initialCategories);
     const [kits, setKits] = useState<Kit[]>(initialKits);
+    const [highlights, setHighlights] = useState<Highlight[]>(initialHighlights);
     
     // Estados de Navegação
-    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock'>('menu');
+    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock' | 'highlights'>('menu');
 
     // Estados de Edição
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -356,14 +462,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [editingCategoryName, setEditingCategoryName] = useState('');
 
     // Estados de Loading
-    const [isSubmittingProduct, setIsSubmittingProduct] = useState(false);
-    const [isSubmittingCategory, setIsSubmittingCategory] = useState(false);
-    const [isSubmittingKit, setIsSubmittingKit] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
     const [updatingStockId, setUpdatingStockId] = useState<number | null>(null);
     
     // Drag and Drop
-    const [draggedItem, setDraggedItem] = useState<{ list: 'product' | 'kit', index: number } | null>(null);
+    const [draggedItem, setDraggedItem] = useState<{ list: string, index: number } | null>(null);
 
     // Formulário de produto
     const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
@@ -378,6 +482,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
     const [kitExistingImages, setKitExistingImages] = useState<string[]>([]);
     const [selectedKitProducts, setSelectedKitProducts] = useState<Set<number>>(new Set());
     const [kitProductSearch, setKitProductSearch] = useState('');
+
+    // Formulário de Destaque
+    const [highlightForm, setHighlightForm] = useState({ type: 'product', product_id: '', image_url: '', title: '', subtitle: '' });
+    const [highlightImageFile, setHighlightImageFile] = useState<File | null>(null);
 
     // Estado de Estoque
     const [stockLevels, setStockLevels] = useState<{ [key: number]: string }>({});
@@ -538,23 +646,33 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         setPreviews(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handleDragStart = (index: number, list: 'product' | 'kit') => {
+    const handleDragStart = (index: number, list: string) => {
         setDraggedItem({ list, index });
     };
 
-    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    // FIX: Changed the event type to HTMLElement to support both div and li elements for drag and drop.
+    const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
         e.preventDefault();
     };
 
-    const handleDrop = (index: number, list: 'product' | 'kit') => {
+    const handleDrop = (index: number, list: string) => {
         if (!draggedItem || draggedItem.list !== list) return;
 
-        const setter = list === 'product' ? setImagePreviews : setKitImagePreviews;
+        let setter;
+        if (list === 'product_images') setter = setImagePreviews;
+        else if (list === 'kit_images') setter = setKitImagePreviews;
+        else if (list === 'highlights') setter = setHighlights;
+        else return;
         
         setter(currentItems => {
             const newItems = [...currentItems];
             const [dragged] = newItems.splice(draggedItem.index, 1);
             newItems.splice(index, 0, dragged);
+            
+            if (list === 'highlights') {
+                handleSaveHighlightOrder(newItems);
+            }
+
             return newItems;
         });
     };
@@ -580,17 +698,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         const form = e.target as HTMLFormElement;
         const name = (form.elements.namedItem('categoryName') as HTMLInputElement).value;
         if (name && !categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
-            setIsSubmittingCategory(true);
+            setIsSubmitting(true);
             const { data: addedCategory, error } = await supabase.from('categories').insert({ name }).select().single();
             if (error) {
                 alert('Erro ao adicionar categoria: ' + error.message);
             } else {
                 const newCategories = [...categories, addedCategory];
                 setCategories(newCategories);
-                onDataChange(products, newCategories, kits);
+                onDataChange(products, newCategories, kits, highlights);
                 form.reset();
             }
-            setIsSubmittingCategory(false);
+            setIsSubmitting(false);
         }
     };
     
@@ -609,7 +727,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             } else {
                 const newCategories = categories.filter(c => c.id !== categoryId);
                 setCategories(newCategories);
-                onDataChange(products, newCategories, kits);
+                onDataChange(products, newCategories, kits, highlights);
             }
             setDeletingItemId(null);
         }
@@ -624,7 +742,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         e.preventDefault();
         if (!editingCategory || !editingCategoryName.trim()) return;
 
-        setIsSubmittingCategory(true);
+        setIsSubmitting(true);
         const { data: updatedCategory, error } = await supabase
             .from('categories')
             .update({ name: editingCategoryName })
@@ -637,15 +755,15 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         } else {
             const newCategories = categories.map(c => c.id === updatedCategory.id ? updatedCategory : c);
             setCategories(newCategories);
-            onDataChange(products, newCategories, kits);
+            onDataChange(products, newCategories, kits, highlights);
             setEditingCategory(null);
         }
-        setIsSubmittingCategory(false);
+        setIsSubmitting(false);
     };
 
     const handleProductFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        setIsSubmittingProduct(true);
+        setIsSubmitting(true);
         
         const uploadedImageUrls: string[] = [];
         for (const file of imageFiles) {
@@ -653,7 +771,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
             if (uploadError) {
                 alert('Erro ao fazer upload da imagem: ' + uploadError.message);
-                setIsSubmittingProduct(false); return;
+                setIsSubmitting(false); return;
             }
             const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
             uploadedImageUrls.push(data.publicUrl);
@@ -690,11 +808,11 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         let savedProduct;
         if (editingProduct) {
             const { data, error } = await supabase.from('products').update(productData).eq('id', editingProduct.id).select().single();
-            if (error) { alert('Erro ao atualizar produto: ' + error.message); setIsSubmittingProduct(false); return; }
+            if (error) { alert('Erro ao atualizar produto: ' + error.message); setIsSubmitting(false); return; }
             savedProduct = data;
         } else {
             const { data, error } = await supabase.from('products').insert(productData).select().single();
-            if (error) { alert('Erro ao adicionar produto: ' + error.message); setIsSubmittingProduct(false); return; }
+            if (error) { alert('Erro ao adicionar produto: ' + error.message); setIsSubmitting(false); return; }
             savedProduct = data;
         }
 
@@ -707,9 +825,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             newProducts = [...products, finalProduct];
         }
         setProducts(newProducts);
-        onDataChange(newProducts, categories, kits);
+        onDataChange(newProducts, categories, kits, highlights);
         resetProductForm();
-        setIsSubmittingProduct(false);
+        setIsSubmitting(false);
     };
 
     const handleDeleteProduct = async (productId: number) => {
@@ -754,7 +872,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             if (productToDelete.images?.length > 0) {
                 const imagePaths = productToDelete.images.map(url => {
                     try {
-                        // Extract path from a full URL, e.g., https://.../product-images/public/image.png -> public/image.png
                         return new URL(url).pathname.split('/product-images/')[1];
                     } catch (e) {
                         console.warn('URL de imagem inválida, pulando exclusão:', url);
@@ -773,12 +890,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             if (deleteError) {
                 alert(`Erro ao excluir produto: ${deleteError.message}\n\nIsso pode acontecer se o produto ainda estiver vinculado a outras partes do sistema.`);
             } else {
-                // Update local state on success
                 const newProducts = products.filter(p => p.id !== productId);
                 
                 let updatedKits = kits;
                 if (isProductInKit) {
-                    // Also update the local kits state to remove the product
                     updatedKits = kits.map(kit => ({
                         ...kit,
                         products: (kit.products || []).filter(p => p.id !== productId),
@@ -787,7 +902,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                 
                 setProducts(newProducts);
                 setKits(updatedKits);
-                onDataChange(newProducts, categories, updatedKits);
+                onDataChange(newProducts, categories, updatedKits, highlights);
             }
         } catch (e: any) {
             alert('Ocorreu um erro inesperado: ' + e.message);
@@ -798,7 +913,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
 
     const handleKitFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        setIsSubmittingKit(true);
+        setIsSubmitting(true);
 
         const uploadedImageUrls: string[] = [];
         for (const file of kitImageFiles) {
@@ -806,7 +921,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
             if (uploadError) {
                 alert('Erro ao fazer upload da imagem do kit: ' + uploadError.message);
-                setIsSubmittingKit(false); return;
+                setIsSubmitting(false); return;
             }
             const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
             uploadedImageUrls.push(data.publicUrl);
@@ -860,7 +975,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                 };
                 const newKits = kits.map(k => k.id === updatedKit.id ? updatedKitWithProducts : k);
                 setKits(newKits);
-                onDataChange(products, categories, newKits);
+                onDataChange(products, categories, newKits, highlights);
                 resetKitForm();
             }
         } else {
@@ -879,11 +994,11 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                 };
                 const newKits = [...kits, addedKitWithProducts];
                 setKits(newKits);
-                onDataChange(products, categories, newKits);
+                onDataChange(products, categories, newKits, highlights);
                 resetKitForm();
             }
         }
-        setIsSubmittingKit(false);
+        setIsSubmitting(false);
     };
 
     const handleDeleteKit = async (kitId: number) => {
@@ -910,7 +1025,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             else {
                 const newKits = kits.filter(k => k.id !== kitId);
                 setKits(newKits);
-                onDataChange(products, categories, newKits);
+                onDataChange(products, categories, newKits, highlights);
             }
             setDeletingItemId(null);
         }
@@ -949,9 +1064,122 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
         } else {
             const newProducts = products.map(p => p.id === productId ? updatedProduct : p);
             setProducts(newProducts);
-            onDataChange(newProducts, categories, kits);
+            onDataChange(newProducts, categories, kits, highlights);
         }
     };
+    
+    const handleHighlightFormChange = (e) => {
+        const { name, value, type, files } = e.target;
+        if (type === 'file') {
+            setHighlightImageFile(files[0]);
+        } else {
+            setHighlightForm(prev => ({ ...prev, [name]: value }));
+        }
+    };
+    
+    const handleAddHighlight = async (e) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+
+        const newHighlightData: Partial<Highlight> = {
+            type: highlightForm.type as 'product' | 'image',
+            sort_order: highlights.length, // Add to the end
+        };
+
+        if (highlightForm.type === 'product') {
+            if (!highlightForm.product_id) {
+                alert('Por favor, selecione um produto.');
+                setIsSubmitting(false);
+                return;
+            }
+            newHighlightData.product_id = parseInt(highlightForm.product_id, 10);
+        } else { // type is 'image'
+            if (!highlightImageFile) {
+                alert('Por favor, selecione uma imagem.');
+                setIsSubmitting(false);
+                return;
+            }
+            const file = highlightImageFile;
+            const filePath = `highlights/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+            const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
+
+            if (uploadError) {
+                alert('Erro ao fazer upload da imagem de destaque: ' + uploadError.message);
+                setIsSubmitting(false); return;
+            }
+            const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+            newHighlightData.image_url = data.publicUrl;
+            newHighlightData.title = highlightForm.title;
+            newHighlightData.subtitle = highlightForm.subtitle;
+        }
+
+        const { data: addedHighlight, error } = await supabase
+            .from('highlights')
+            .insert(newHighlightData)
+            .select()
+            .single();
+
+        if (error) {
+            alert('Erro ao adicionar destaque: ' + error.message);
+        } else {
+            const newHighlights = [...highlights, addedHighlight];
+            setHighlights(newHighlights);
+            onDataChange(products, categories, kits, newHighlights);
+            setHighlightForm({ type: 'product', product_id: '', image_url: '', title: '', subtitle: '' });
+            setHighlightImageFile(null);
+            const fileInput = document.getElementById('highlightImage') as HTMLInputElement;
+            if (fileInput) fileInput.value = '';
+        }
+        setIsSubmitting(false);
+    };
+
+    const handleDeleteHighlight = async (highlightId: number) => {
+        if (!window.confirm('Tem certeza que deseja remover este destaque?')) return;
+        
+        setDeletingItemId(`hl-${highlightId}`);
+        const highlightToDelete = highlights.find(h => h.id === highlightId);
+
+        // Delete image from storage if it's a custom image highlight
+        if (highlightToDelete?.type === 'image' && highlightToDelete.image_url) {
+            try {
+                const imagePath = new URL(highlightToDelete.image_url).pathname.split('/product-images/')[1];
+                await supabase.storage.from('product-images').remove([imagePath]);
+            } catch (e) {
+                console.warn("Não foi possível remover a imagem do destaque do armazenamento:", e);
+            }
+        }
+        
+        const { error } = await supabase.from('highlights').delete().eq('id', highlightId);
+        
+        if (error) {
+            alert('Erro ao remover destaque: ' + error.message);
+        } else {
+            const newHighlights = highlights.filter(h => h.id !== highlightId);
+            setHighlights(newHighlights);
+            onDataChange(products, categories, kits, newHighlights);
+        }
+        setDeletingItemId(null);
+    };
+
+    const handleSaveHighlightOrder = async (orderedHighlights: Highlight[]) => {
+        const updates = orderedHighlights.map((highlight, index) =>
+            supabase
+                .from('highlights')
+                .update({ sort_order: index })
+                .eq('id', highlight.id)
+        );
+        
+        const results = await Promise.all(updates);
+        const hasError = results.some(res => res.error);
+        
+        if (hasError) {
+            alert('Ocorreu um erro ao salvar a nova ordem dos destaques.');
+            // Optionally, revert local state to `initialHighlights` to stay in sync with DB
+        } else {
+             onDataChange(products, categories, kits, orderedHighlights);
+        }
+    };
+
 
     const categoriesWithoutAll = categories.filter(c => c.id !== 1);
 
@@ -961,6 +1189,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             <button className="admin-button" onClick={() => setActiveView('categories')}>Gerenciar Categorias</button>
             <button className="admin-button" onClick={() => setActiveView('kits')}>Gerenciar Kits</button>
             <button className="admin-button" onClick={() => setActiveView('stock')}>Gerenciar Estoque</button>
+            <button className="admin-button" onClick={() => setActiveView('highlights')}>Gerenciar Destaques</button>
         </div>
     );
     
@@ -988,11 +1217,11 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                             {imagePreviews.map((src, index) => (
                                 <div 
                                     key={src + index} 
-                                    className={`image-preview-item ${draggedItem?.list === 'product' && draggedItem.index === index ? 'dragging' : ''}`}
+                                    className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''}`}
                                     draggable
-                                    onDragStart={() => handleDragStart(index, 'product')}
+                                    onDragStart={() => handleDragStart(index, 'product_images')}
                                     onDragOver={handleDragOver}
-                                    onDrop={() => handleDrop(index, 'product')}
+                                    onDrop={() => handleDrop(index, 'product_images')}
                                     onDragEnd={handleDragEnd}
                                 >
                                     <span className="image-order-badge">{index + 1}</span>
@@ -1042,8 +1271,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         </div>
 
                         <div className="admin-form-actions">
-                            <button type="submit" className="admin-button" disabled={isSubmittingProduct}>
-                                {isSubmittingProduct ? 'Salvando...' : (editingProduct ? 'Salvar Alterações' : 'Adicionar Produto')}
+                            <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                {isSubmitting ? 'Salvando...' : (editingProduct ? 'Salvar Alterações' : 'Adicionar Produto')}
                             </button>
                             {editingProduct && (
                                 <button type="button" className="admin-button cancel" onClick={resetProductForm}>Cancelar</button>
@@ -1098,8 +1327,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                             <label htmlFor="categoryName">Nome da Categoria</label>
                             <input type="text" id="categoryName" name="categoryName" required />
                         </div>
-                        <button type="submit" className="admin-button" disabled={isSubmittingCategory}>
-                            {isSubmittingCategory ? 'Adicionando...' : 'Adicionar Categoria'}
+                        <button type="submit" className="admin-button" disabled={isSubmitting}>
+                            {isSubmitting ? 'Adicionando...' : 'Adicionar Categoria'}
                         </button>
                     </form>
                 </section>
@@ -1114,7 +1343,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                                     {editingCategory?.id === cat.id ? (
                                         <form onSubmit={handleUpdateCategory} className="category-edit-form">
                                             <input type="text" value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} autoFocus />
-                                            <button type="submit" disabled={isSubmittingCategory}>Salvar</button>
+                                            <button type="submit" disabled={isSubmitting}>Salvar</button>
                                             <button type="button" onClick={() => setEditingCategory(null)}>Cancelar</button>
                                         </form>
                                     ) : (
@@ -1181,11 +1410,11 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                            {kitImagePreviews.map((src, index) => (
                                 <div
                                     key={src + index}
-                                    className={`image-preview-item ${draggedItem?.list === 'kit' && draggedItem.index === index ? 'dragging' : ''}`}
+                                    className={`image-preview-item ${draggedItem?.list === 'kit_images' && draggedItem.index === index ? 'dragging' : ''}`}
                                     draggable
-                                    onDragStart={() => handleDragStart(index, 'kit')}
+                                    onDragStart={() => handleDragStart(index, 'kit_images')}
                                     onDragOver={handleDragOver}
-                                    onDrop={() => handleDrop(index, 'kit')}
+                                    onDrop={() => handleDrop(index, 'kit_images')}
                                     onDragEnd={handleDragEnd}
                                 >
                                     <span className="image-order-badge">{index + 1}</span>
@@ -1223,8 +1452,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
                         </div>
 
                         <div className="admin-form-actions">
-                            <button type="submit" className="admin-button" disabled={isSubmittingKit}>
-                                {isSubmittingKit ? 'Salvando...' : (editingKit ? 'Salvar Kit' : 'Criar Kit')}
+                            <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                {isSubmitting ? 'Salvando...' : (editingKit ? 'Salvar Kit' : 'Criar Kit')}
                             </button>
                             {editingKit && (
                                 <button type="button" className="admin-button cancel" onClick={resetKitForm}>Cancelar</button>
@@ -1309,7 +1538,113 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             </section>
         </div>
     );
+    
+    const renderHighlightsView = () => {
+        const getHighlightDisplayInfo = (highlight: Highlight) => {
+            if (highlight.type === 'product' && highlight.product_id) {
+                const product = products.find(p => p.id === highlight.product_id);
+                return {
+                    image: product?.images?.[0] || PLACEHOLDER_IMAGE,
+                    title: product?.name || 'Produto não encontrado',
+                    subtitle: `Produto - R$ ${product?.price.toFixed(2).replace('.',',') || 'N/A'}`
+                };
+            } else {
+                 return {
+                    image: highlight.image_url || PLACEHOLDER_IMAGE,
+                    title: highlight.title || 'Imagem Personalizada',
+                    subtitle: highlight.subtitle || ''
+                };
+            }
+        };
 
+        return (
+            <div className="admin-view">
+                <button onClick={() => setActiveView('menu')} className="admin-back-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    Voltar ao Menu
+                </button>
+                <div className="admin-content-grid">
+                    <section className="admin-section">
+                        <h3>Adicionar Novo Destaque</h3>
+                        <form onSubmit={handleAddHighlight} className="admin-form">
+                            <div className="form-group">
+                                <label>Tipo de Destaque</label>
+                                <select name="type" value={highlightForm.type} onChange={handleHighlightFormChange} style={{marginBottom: '1rem'}}>
+                                    <option value="product">Produto Existente</option>
+                                    <option value="image">Imagem Personalizada</option>
+                                </select>
+                            </div>
+
+                            {highlightForm.type === 'product' ? (
+                                <div className="form-group">
+                                    <label htmlFor="product_id">Selecione o Produto</label>
+                                    <select id="product_id" name="product_id" value={highlightForm.product_id} onChange={handleHighlightFormChange} required>
+                                        <option value="">-- Escolha um produto --</option>
+                                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="form-group">
+                                        <label htmlFor="highlightImage">Imagem</label>
+                                        <input type="file" id="highlightImage" name="image" accept="image/*" onChange={handleHighlightFormChange} required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="title">Título (opcional)</label>
+                                        <input type="text" id="title" name="title" value={highlightForm.title} onChange={handleHighlightFormChange} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label htmlFor="subtitle">Subtítulo (opcional)</label>
+                                        <input type="text" id="subtitle" name="subtitle" value={highlightForm.subtitle} onChange={handleHighlightFormChange} />
+                                    </div>
+                                </>
+                            )}
+
+                            <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                {isSubmitting ? 'Adicionando...' : 'Adicionar Destaque'}
+                            </button>
+                        </form>
+                    </section>
+                    <section className="admin-section">
+                        <h3>Destaques Atuais</h3>
+                        <p>Arraste para reordenar.</p>
+                        {highlights.length === 0 ? (
+                            <p className="empty-list-message">Nenhum destaque cadastrado.</p>
+                        ) : (
+                            <ul className="item-list highlights-admin-list">
+                                {highlights.map((highlight, index) => {
+                                    const { image, title, subtitle } = getHighlightDisplayInfo(highlight);
+                                    return (
+                                        <li 
+                                            key={highlight.id}
+                                            draggable
+                                            className={draggedItem?.list === 'highlights' && draggedItem.index === index ? 'dragging' : ''}
+                                            onDragStart={() => handleDragStart(index, 'highlights')}
+                                            onDragOver={handleDragOver}
+                                            onDrop={() => handleDrop(index, 'highlights')}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <span className="drag-handle">::</span>
+                                            <img src={image} alt={title} className="item-list-img" />
+                                            <div className="item-list-details">
+                                                <span className="item-list-name">{title}</span>
+                                                <small>{subtitle}</small>
+                                            </div>
+                                            <div className="item-list-actions">
+                                                <button onClick={() => handleDeleteHighlight(highlight.id)} className="item-list-delete-button" disabled={deletingItemId === `hl-${highlight.id}`}>
+                                                    {deletingItemId === `hl-${highlight.id}` ? '...' : 'Excluir'}
+                                                </button>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </section>
+                </div>
+            </div>
+        )
+    };
 
     return (
         <div className="admin-container">
@@ -1328,6 +1663,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, onDat
             {activeView === 'categories' && renderCategoriesView()}
             {activeView === 'kits' && renderKitsView()}
             {activeView === 'stock' && renderStockView()}
+            {activeView === 'highlights' && renderHighlightsView()}
         </div>
     );
 };
@@ -1356,6 +1692,7 @@ const App = () => {
     const [products, setProducts] = useState<Product[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [kits, setKits] = useState<Kit[]>([]);
+    const [highlights, setHighlights] = useState<DisplayHighlight[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number>(1); // 1 = 'Todos'
     const [searchQuery, setSearchQuery] = useState('');
@@ -1381,6 +1718,9 @@ const App = () => {
             
             const { data: kitsData, error: kitsError } = await supabase.from('kits').select('*');
             if(kitsError) console.error('Erro ao buscar kits:', kitsError.message);
+            
+            const { data: highlightsData, error: highlightsError } = await supabase.from('highlights').select('*').order('sort_order', { ascending: true });
+            if(highlightsError) console.error('Erro ao buscar destaques:', highlightsError.message);
 
             // Fetch association data for kits
             const { data: kitProductsData, error: kitProductsError } = await supabase.from('kit_products').select('*');
@@ -1394,6 +1734,17 @@ const App = () => {
             }));
             setProducts(localProducts);
 
+            // Process highlights
+            if (highlightsData && localProducts) {
+                const displayHighlights: DisplayHighlight[] = highlightsData.map(h => {
+                    if (h.type === 'product' && h.product_id) {
+                        const product = localProducts.find(p => p.id === h.product_id);
+                        return { ...h, product };
+                    }
+                    return h;
+                }).filter(h => h.type === 'image' || (h.type === 'product' && h.product));
+                setHighlights(displayHighlights);
+            }
 
             // Process kits
             if (kitsData && localProducts && kitProductsData) {
@@ -1532,11 +1883,19 @@ const App = () => {
         setCurrentView('adminDashboard');
     };
 
-    const handleDataChange = (newProducts, newCategories, newKits) => {
+    const handleDataChange = (newProducts, newCategories, newKits, newHighlights) => {
         setProducts(newProducts);
         const existingCategories = newCategories.filter(c => c.id !== 1);
         setCategories([{id: 1, name: 'Todos'}, ...existingCategories]);
         setKits(newKits);
+        const displayHighlights: DisplayHighlight[] = newHighlights.map(h => {
+             if (h.type === 'product' && h.product_id) {
+                const product = newProducts.find(p => p.id === h.product_id);
+                return { ...h, product };
+            }
+            return h;
+        }).filter(h => h.type === 'image' || (h.type === 'product' && h.product));
+        setHighlights(displayHighlights);
     };
 
     const navigateToStore = () => {
@@ -1593,7 +1952,7 @@ const App = () => {
     }
     
     if (currentView === 'adminDashboard') {
-        return <AdminDashboard initialProducts={products} initialCategories={categories} initialKits={kits} onDataChange={handleDataChange} onBackToStore={navigateToStore} />;
+        return <AdminDashboard initialProducts={products} initialCategories={categories} initialKits={kits} initialHighlights={highlights} onDataChange={handleDataChange} onBackToStore={navigateToStore} />;
     }
 
     return (
@@ -1607,7 +1966,7 @@ const App = () => {
                 onSearchChange={handleSearchChange}
             />
             <main>
-                <img src={BANNER_URL} alt="Banner Marçal Artigos Militares" className="main-banner" />
+                <Carousel items={highlights} onProductClick={setSelectedDisplayItem} />
                 <div className="category-filters">
                     {categories.map(cat => (
                         <button
