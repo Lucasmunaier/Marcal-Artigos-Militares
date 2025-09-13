@@ -67,6 +67,8 @@ const ADMIN_PASSWORD = 'admin'; // Senha para o painel de administração
 const WHATSAPP_NUMBER = '5531993925289'; // Número do WhatsApp para receber os pedidos
 const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+Imagem';
+const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
+const BANNER_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/Principal.png';
 
 // --- COMPONENTES DA UI ---
 
@@ -81,7 +83,7 @@ const SkeletonCard = () => (
 const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating, searchQuery, onSearchChange }) => (
     <header>
         <div className="logo-container" onClick={onLogoClick} style={{cursor: 'pointer'}}>
-            <img src="/icon.png" alt="Marçal Artigos Militares Logo" className="logo-icon" />
+            <img src={ICON_URL} alt="Marçal Artigos Militares Logo" className="logo-icon" />
             <h1>Marçal Artigos Militares</h1>
         </div>
         <div className="search-container">
@@ -1605,7 +1607,7 @@ const App = () => {
                 onSearchChange={handleSearchChange}
             />
             <main>
-                <img src="/Principal.png" alt="Banner Marçal Artigos Militares" className="main-banner" />
+                <img src={BANNER_URL} alt="Banner Marçal Artigos Militares" className="main-banner" />
                 <div className="category-filters">
                     {categories.map(cat => (
                         <button
