@@ -22,7 +22,7 @@ interface Product {
     category_ids: number[];
     is_customizable: boolean;
     custom_text_label: string | null;
-    stock: { [key: string]: number };
+    stock: { [key: string]: number } | number;
 }
 
 interface Category {
@@ -103,15 +103,28 @@ const getProductStock = (product: Product | undefined | null): { [key: string]: 
     if (typeof product.stock === 'number') {
         return { default: product.stock };
     }
-    if (typeof product.stock === 'object' && !Array.isArray(product.stock)) {
-        return product.stock;
+    if (typeof product.stock === 'object' && product.stock !== null && !Array.isArray(product.stock)) {
+        const sanitizedStock: { [key: string]: number } = {};
+        for (const [key, value] of Object.entries(product.stock)) {
+            const numValue = parseInt(String(value), 10);
+            sanitizedStock[key] = isNaN(numValue) ? 0 : numValue;
+        }
+        return sanitizedStock;
     }
     return { default: 0 };
 };
 
 const isProductTotallyOutOfStock = (product: Product): boolean => {
+    if (!product) return true;
     const stockData = getProductStock(product);
-    const totalStock = Object.values(stockData).reduce((sum, qty) => sum + qty, 0);
+    
+    // Sum all available stock quantities, regardless of any specific 'sizes' array.
+    // This is more robust against potential data inconsistencies.
+    const totalStock = Object.values(stockData).reduce((sum, currentStock) => {
+        // Ensure we are adding numbers
+        return sum + (Number(currentStock) || 0);
+    }, 0);
+
     return totalStock <= 0;
 };
 
@@ -1006,7 +1019,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             is_customizable: productForm.is_customizable,
             custom_text_label: productForm.is_customizable ? productForm.custom_text_label : null,
             category_ids: productForm.category_ids || [],
-            stock: stockToSave,
+            stock: productForm.has_sizes ? stockToSave : (stockToSave.default || 0),
         };
 
         let savedProduct;
@@ -1272,34 +1285,60 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             alert("Nenhuma alteração de estoque para salvar.");
             return;
         }
-
+    
         setIsSubmitting(true);
-        const updatePromises = Object.entries(stockChanges).map(([productId, stock]) =>
-            supabase
+        const errors: string[] = [];
+        const successfulUpdates: { [key: number]: { [key: string]: number } } = {};
+    
+        for (const [productIdStr, stockObject] of Object.entries(stockChanges)) {
+            const productId = parseInt(productIdStr, 10);
+            const product = products.find(p => p.id === productId);
+            
+            const hasSizes = product && product.sizes && product.sizes.length > 0;
+            // If the product has sizes, send the object. If not, send the number.
+            const payload = {
+                stock: hasSizes ? stockObject : (stockObject['default'] || 0)
+            };
+    
+            const { error } = await supabase
                 .from('products')
-                .update({ stock: stock })
-                .eq('id', parseInt(productId, 10))
-        );
-        
-        const results = await Promise.all(updatePromises);
-        const firstError = results.find(result => result.error);
-        const error = firstError ? firstError.error : null;
+                .update(payload)
+                .eq('id', productId);
+    
+            if (error) {
+                const productName = product ? product.name : `ID ${productId}`;
+                errors.push(`- ${productName}: ${error.message}`);
+            } else {
+                // We still use the full stock object to update the local state correctly
+                successfulUpdates[productId] = stockObject;
+            }
+        }
         
         setIsSubmitting(false);
-
-        if (error) {
-            alert(`Erro ao salvar as alterações de estoque: ${error.message}`);
-        } else {
-            const updatedProductIds = new Set(Object.keys(stockChanges).map(id => parseInt(id, 10)));
+    
+        const successfulCount = Object.keys(successfulUpdates).length;
+        if (successfulCount > 0) {
             const newProducts = products.map(p => {
-                if (updatedProductIds.has(p.id)) {
-                    return { ...p, stock: stockChanges[p.id] };
+                if (successfulUpdates[p.id]) {
+                    return { ...p, stock: successfulUpdates[p.id] };
                 }
                 return p;
             });
             setProducts(newProducts);
             onDataChange(newProducts, categories, kits, highlights);
-            setStockChanges({});
+            
+            // Clear only the successful changes from the changes list
+            const remainingChanges = { ...stockChanges };
+            for (const id in successfulUpdates) {
+                delete remainingChanges[id];
+            }
+            setStockChanges(remainingChanges);
+        }
+        
+        if (errors.length > 0) {
+            const errorHint = 'O erro "invalid input syntax for type integer" geralmente indica uma incompatibilidade entre o aplicativo e o banco de dados. A coluna "stock" provavelmente espera um número único, mas o aplicativo está enviando um objeto para gerenciar o estoque por tamanho. Para corrigir isso, a coluna "stock" na sua tabela "products" no Supabase precisa ser alterada para o tipo JSONB.';
+            alert(`Falha ao salvar ${errors.length} de ${changesCount} alterações.\n\nErros:\n${errors.join('\n')}\n\n${errorHint}`);
+        } else {
             alert(`${changesCount} produto(s) atualizado(s) com sucesso!`);
         }
     };
