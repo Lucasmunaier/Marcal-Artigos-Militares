@@ -1274,18 +1274,23 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
 
         setIsSubmitting(true);
-        const updates = Object.entries(stockChanges).map(([productId, stock]) => ({
-            id: parseInt(productId, 10),
-            stock: stock,
-        }));
-
-        const { error } = await supabase.from('products').upsert(updates);
+        const updatePromises = Object.entries(stockChanges).map(([productId, stock]) =>
+            supabase
+                .from('products')
+                .update({ stock: stock })
+                .eq('id', parseInt(productId, 10))
+        );
+        
+        const results = await Promise.all(updatePromises);
+        const firstError = results.find(result => result.error);
+        const error = firstError ? firstError.error : null;
+        
         setIsSubmitting(false);
 
         if (error) {
             alert(`Erro ao salvar as alterações de estoque: ${error.message}`);
         } else {
-            const updatedProductIds = new Set(updates.map(u => u.id));
+            const updatedProductIds = new Set(Object.keys(stockChanges).map(id => parseInt(id, 10)));
             const newProducts = products.map(p => {
                 if (updatedProductIds.has(p.id)) {
                     return { ...p, stock: stockChanges[p.id] };
