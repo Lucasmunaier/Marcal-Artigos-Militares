@@ -1057,6 +1057,10 @@ main {
     gap: 1rem;
 }
 
+.stock-list-item {
+    align-items: flex-start;
+}
+
 .item-list-img {
     width: 40px;
     height: 40px;
@@ -1606,6 +1610,39 @@ main {
     text-align: center;
     font-size: 0.9rem;
 }
+
+.size-stock-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    margin-top: 0.8rem;
+    padding-left: 1rem;
+    border-left: 3px solid #eee;
+}
+
+.size-stock-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.size-stock-item label {
+    font-weight: 500;
+    margin-bottom: 0;
+    flex-basis: 120px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+}
+
+.size-stock-item input {
+    width: 100px;
+    padding: 0.5rem;
+}
+
+.admin-form .form-group .form-stock-item label {
+    font-weight: 400; /* less emphasis */
+}
+
 
 .sr-only {
   position: absolute;

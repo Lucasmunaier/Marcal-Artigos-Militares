@@ -23,7 +23,7 @@ interface Product {
     category_ids: number[];
     is_customizable: boolean;
     custom_text_label: string | null;
-    stock: number;
+    stock: { [key: string]: number };
 }
 
 interface Category {
@@ -94,6 +94,28 @@ const WHATSAPP_NUMBER = '5531993925289'; // Número do WhatsApp para receber os 
 const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+Imagem';
 const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
+
+// --- FUNÇÕES HELPER ---
+const getProductStock = (product: Product | undefined | null): { [key: string]: number } => {
+    if (!product || !product.stock) {
+        return { default: 0 };
+    }
+    // Handle legacy number format
+    if (typeof product.stock === 'number') {
+        return { default: product.stock };
+    }
+    if (typeof product.stock === 'object' && !Array.isArray(product.stock)) {
+        return product.stock;
+    }
+    return { default: 0 };
+};
+
+const isProductTotallyOutOfStock = (product: Product): boolean => {
+    const stockData = getProductStock(product);
+    const totalStock = Object.values(stockData).reduce((sum, qty) => sum + qty, 0);
+    return totalStock <= 0;
+};
+
 
 // --- COMPONENTES DA UI ---
 const FramedImage = ({ image, className, altText }: { image: ProductImage | null, className?: string, altText: string }) => {
@@ -261,7 +283,10 @@ const Carousel = ({ items, onProductClick }) => {
 
 
 const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
-    const isOutOfStock = item.type === 'product' && (item.data as Product).stock <= 0;
+    const isOutOfStock = useMemo(() => {
+        return item.type === 'product' && isProductTotallyOutOfStock(item.data as Product);
+    }, [item]);
+    
     const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
     const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
 
@@ -284,12 +309,22 @@ const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductCli
 
 const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [quantity, setQuantity] = useState(1);
-    const [selectedSize, setSelectedSize] = useState(item.type === 'product' ? item.data.sizes?.[0] || '' : '');
+    const [selectedSize, setSelectedSize] = useState('');
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
     
     const images = useMemo(() => (item.type === 'product' ? item.data.images : (item.data.images || []).map(url => ({ url, zoom: 1, pos_x: 0.5, pos_y: 0.5 })) ) || [], [item]);
     const [mainImage, setMainImage] = useState<ProductImage | null>(images[0] || null);
+
+    const stockData = useMemo(() => (item.type === 'product' ? getProductStock(item.data as Product) : {}), [item]);
+
+    useEffect(() => {
+        if (item.type === 'product') {
+            const product = item.data as Product;
+            const firstAvailableSize = (product.sizes || []).find(size => (stockData[size] ?? 0) > 0);
+            setSelectedSize(firstAvailableSize || product.sizes?.[0] || '');
+        }
+    }, [item, stockData]);
 
     useEffect(() => {
         setMainImage(images[0] || null);
@@ -306,6 +341,20 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                 alert('Por favor, selecione um tamanho.');
                 return;
             }
+            // Check stock for the selected size
+             if (product.sizes?.length > 0) {
+                const availableStock = stockData[selectedSize] ?? 0;
+                if (quantity > availableStock) {
+                    alert(`Desculpe, temos apenas ${availableStock} unidades do tamanho ${selectedSize} em estoque.`);
+                    return;
+                }
+            } else { // No sizes
+                 const availableStock = stockData['default'] ?? 0;
+                 if (quantity > availableStock) {
+                    alert(`Desculpe, temos apenas ${availableStock} unidades em estoque.`);
+                    return;
+                }
+            }
         }
         onAddToCart(item, quantity, selectedSize, customText);
         setShowSuccess(true);
@@ -314,7 +363,16 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         }, 1500);
     };
     
-    const isOutOfStock = item.type === 'product' && (item.data as Product).stock <= 0;
+    const isProductTotallyOutOfStock = useMemo(() => item.type === 'product' && isProductTotallyOutOfStock(item.data as Product), [item]);
+    
+    const isSelectedVariantOutOfStock = useMemo(() => {
+        if (item.type !== 'product') return false;
+        const product = item.data as Product;
+        if (product.sizes && product.sizes.length > 0) {
+            return (stockData[selectedSize] ?? 0) <= 0;
+        }
+        return (stockData['default'] ?? 0) <= 0;
+    }, [item, selectedSize, stockData]);
 
     const renderProductDetails = () => {
         const product = item.data as Product;
@@ -324,7 +382,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     <div className="form-group">
                         <label htmlFor="size">Tamanho:</label>
                         <select id="size" value={selectedSize} onChange={(e) => setSelectedSize(e.target.value)}>
-                            {product.sizes.map(size => <option key={size} value={size}>{size}</option>)}
+                            {product.sizes.map(size => {
+                                const sizeStock = stockData[size] ?? 0;
+                                const isSizeOutOfStock = sizeStock <= 0;
+                                return (
+                                    <option key={size} value={size} disabled={isSizeOutOfStock}>
+                                        {size} {isSizeOutOfStock ? '(Esgotado)' : ''}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                 )}
@@ -384,16 +450,18 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
                         <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
-                        {isOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
+                        {isProductTotallyOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
                         <p className="description">{item.data.description}</p>
                         {item.type === 'product' ? renderProductDetails() : renderKitDetails()}
                         <button 
                             className={`add-to-cart-button ${showSuccess ? 'success' : ''}`} 
                             onClick={handleAddToCartClick} 
-                            disabled={showSuccess || isOutOfStock}
+                            disabled={showSuccess || isProductTotallyOutOfStock || isSelectedVariantOutOfStock}
                         >
-                            {isOutOfStock ? (
+                            {isProductTotallyOutOfStock ? (
                                 'Produto Esgotado'
+                             ) : isSelectedVariantOutOfStock ? (
+                                'Variação Esgotada'
                             ) : showSuccess ? (
                                 <>Adicionado! <span className="checkmark">✓</span></>
                             ) : (
@@ -527,6 +595,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     // Formulário de produto
     const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
+    const [productFormStock, setProductFormStock] = useState<{ [key: string]: string }>({});
     const [imageFiles, setImageFiles] = useState<File[]>([]);
     const [imagePreviewObjects, setImagePreviewObjects] = useState<ProductImage[]>([]);
     
@@ -545,14 +614,14 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const highlightEditorRef = useRef<HTMLDivElement>(null);
 
     // Estado de Estoque
-    const [stockLevels, setStockLevels] = useState<{ [key: number]: string }>({});
-    const [stockChanges, setStockChanges] = useState<{ [key: number]: number }>({});
+    const [stockLevels, setStockLevels] = useState<{ [key: number]: { [key: string]: number } }>({});
+    const [stockChanges, setStockChanges] = useState<{ [key: number]: { [key: string]: number } }>({});
 
     useEffect(() => {
         const initialStocks = initialProducts.reduce((acc, p) => {
-            acc[p.id] = String(p.stock ?? 0);
+            acc[p.id] = getProductStock(p);
             return acc;
-        }, {});
+        }, {} as { [key: number]: { [key: string]: number } });
         setStockLevels(initialStocks);
         setStockChanges({});
     }, [initialProducts]);
@@ -573,6 +642,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 is_customizable: editingProduct.is_customizable,
                 custom_text_label: editingProduct.custom_text_label || 'Nome',
             });
+            const stockData = getProductStock(editingProduct);
+            const stockForForm = Object.entries(stockData).reduce((acc, [size, qty]) => {
+                acc[size] = String(qty);
+                return acc;
+            }, {} as { [key: string]: string });
+            setProductFormStock(stockForForm);
             setImagePreviewObjects(safeImages);
             setImageFiles([]);
             setActiveView('products');
@@ -640,6 +715,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     const resetProductForm = () => {
         setProductForm({ name: '', description: '', price: '', category_ids: [], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
+        setProductFormStock({});
         imagePreviewObjects.forEach(img => { if (img.url.startsWith('blob:')) URL.revokeObjectURL(img.url); });
         setImageFiles([]);
         setImagePreviewObjects([]);
@@ -907,16 +983,31 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             ...imgObj,
             url: uploadedImageUrls[imgObj.url] || imgObj.url
         }));
+        
+        const stockToSave: { [key: string]: number } = {};
+        const sizesArray = productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+        
+        if (productForm.has_sizes) {
+            Object.entries(productFormStock).forEach(([size, qty]) => {
+                if (sizesArray.includes(size)) {
+                    stockToSave[size] = qty === '' || isNaN(parseInt(qty)) ? 0 : parseInt(qty, 10);
+                }
+            });
+        } else {
+            const defaultQty = productFormStock.default;
+            stockToSave.default = defaultQty === '' || isNaN(parseInt(defaultQty)) ? 0 : parseInt(defaultQty, 10);
+        }
 
         const productData = {
             name: productForm.name,
             description: productForm.description,
             price: parseFloat(productForm.price),
             images: finalImages,
-            sizes: productForm.has_sizes ? productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) : [],
+            sizes: productForm.has_sizes ? sizesArray : [],
             is_customizable: productForm.is_customizable,
             custom_text_label: productForm.is_customizable ? productForm.custom_text_label : null,
             category_ids: productForm.category_ids || [],
+            stock: stockToSave,
         };
 
         let savedProduct;
@@ -930,7 +1021,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             savedProduct = data;
         }
 
-        const finalProduct: Product = { ...savedProduct, category_ids: savedProduct.category_ids || [], stock: savedProduct.stock ?? 0, images: savedProduct.images || [] };
+        const finalProduct: Product = { ...savedProduct, category_ids: savedProduct.category_ids || [], stock: getProductStock(savedProduct), images: savedProduct.images || [] };
 
         const newProducts = editingProduct
             ? products.map(p => p.id === finalProduct.id ? finalProduct : p)
@@ -1138,16 +1229,35 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     };
     
-    const handleStockChange = (productId: number, value: string) => {
+    const handleStockChange = (productId: number, value: string, size: string = 'default') => {
         if (/^\d*$/.test(value)) {
-            setStockLevels(prev => ({ ...prev, [productId]: value }));
-
-            const originalProduct = initialProducts.find(p => p.id === productId);
             const newStockValue = value === '' ? 0 : parseInt(value, 10);
-
-            if (originalProduct && originalProduct.stock !== newStockValue) {
-                setStockChanges(prev => ({ ...prev, [productId]: newStockValue }));
+    
+            // Update the live display state
+            setStockLevels(prev => ({
+                ...prev,
+                [productId]: { ...(prev[productId] || {}), [size]: newStockValue },
+            }));
+    
+            // Update the state that tracks changes to be saved
+            const originalProduct = initialProducts.find(p => p.id === productId);
+            const initialStockForProduct = getProductStock(originalProduct);
+            
+            // This logic builds the final stock object to be saved for a product
+            const currentStockForProduct = stockLevels[productId] || initialStockForProduct;
+            const updatedStockObjectForProduct = { ...currentStockForProduct, [size]: newStockValue };
+    
+            // A simple way to check if there are any changes is to stringify, but it's not efficient.
+            // A better way is to set the whole object in stockChanges.
+            const hasChanged = JSON.stringify(updatedStockObjectForProduct) !== JSON.stringify(initialStockForProduct);
+    
+            if (hasChanged) {
+                setStockChanges(prev => ({
+                    ...prev,
+                    [productId]: updatedStockObjectForProduct,
+                }));
             } else {
+                // If the change results in the stock being identical to the initial state, remove it from changes.
                 setStockChanges(prev => {
                     const newChanges = { ...prev };
                     delete newChanges[productId];
@@ -1159,7 +1269,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     const handleBulkUpdateStock = async () => {
         const changesCount = Object.keys(stockChanges).length;
-        if (changesCount === 0) return;
+        if (changesCount === 0) {
+            alert("Nenhuma alteração de estoque para salvar.");
+            return;
+        }
 
         setIsSubmitting(true);
         const updates = Object.entries(stockChanges).map(([productId, stock]) => ({
@@ -1484,6 +1597,35 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                 <input type="text" id="productSizes" name="sizes" value={productForm.sizes} onChange={handleFormChange} placeholder="P, M, G" required={productForm.has_sizes} />
                             </div>
                         )}
+                        
+                        <div className="form-group">
+                            <label>{productForm.has_sizes ? 'Estoque por Tamanho' : 'Estoque'}</label>
+                            {productForm.has_sizes ? (
+                                <div className="size-stock-list">
+                                    {(productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)).map(size => (
+                                        <div key={size} className="size-stock-item form-stock-item">
+                                            <label htmlFor={`stock-form-${size}`}>Tamanho {size}</label>
+                                            <input
+                                                id={`stock-form-${size}`}
+                                                type="number"
+                                                min="0"
+                                                placeholder="0"
+                                                value={productFormStock[size] || ''}
+                                                onChange={(e) => setProductFormStock(prev => ({ ...prev, [size]: e.target.value }))}
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <input
+                                    type="number"
+                                    min="0"
+                                    placeholder="0"
+                                    value={productFormStock.default || ''}
+                                    onChange={(e) => setProductFormStock({ default: e.target.value })}
+                                />
+                            )}
+                        </div>
 
                         <div className="form-group-checkbox">
                            <input type="checkbox" id="is_customizable" name="is_customizable" checked={productForm.is_customizable} onChange={handleFormChange} />
@@ -1753,7 +1895,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         onClick={handleBulkUpdateStock}
                         disabled={Object.keys(stockChanges).length === 0 || isSubmitting}
                     >
-                        {isSubmitting ? 'Salvando...' : 'Salvar Todas as Alterações'}
+                        {isSubmitting ? 'Salvando...' : `Salvar ${Object.keys(stockChanges).length} Alterações`}
                     </button>
                 </div>
                 <p>Atualize a quantidade de cada produto em seu inventário.</p>
@@ -1762,23 +1904,43 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 ) : (
                     <ul className="item-list stock-list">
                         {products.map(product => {
-                             const imageObject = (product.images && product.images.length > 0) ? product.images[0] : null;
+                            const imageObject = (product.images && product.images.length > 0) ? product.images[0] : null;
+                            const hasSizes = product.sizes && product.sizes.length > 0;
+                            const currentStock = stockLevels[product.id] || {};
                             return (
-                                <li key={product.id}>
+                                <li key={product.id} className="stock-list-item">
                                     <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
                                     <div className="item-list-details">
                                         <span className="item-list-name">{product.name}</span>
-                                        <div className="stock-controls">
-                                            <label htmlFor={`stock-${product.id}`}>Estoque:</label>
-                                            <input
-                                                id={`stock-${product.id}`}
-                                                type="number"
-                                                min="0"
-                                                value={stockLevels[product.id] || '0'}
-                                                onChange={(e) => handleStockChange(product.id, e.target.value)}
-                                                className="stock-input"
-                                            />
-                                        </div>
+                                        {hasSizes ? (
+                                            <div className="size-stock-list">
+                                                {product.sizes.map(size => (
+                                                    <div key={size} className="size-stock-item">
+                                                        <label htmlFor={`stock-${product.id}-${size}`}>Tamanho {size}:</label>
+                                                        <input
+                                                            id={`stock-${product.id}-${size}`}
+                                                            type="number"
+                                                            min="0"
+                                                            value={currentStock[size] ?? '0'}
+                                                            onChange={(e) => handleStockChange(product.id, e.target.value, size)}
+                                                            className="stock-input"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="stock-controls">
+                                                <label htmlFor={`stock-${product.id}`}>Estoque:</label>
+                                                <input
+                                                    id={`stock-${product.id}`}
+                                                    type="number"
+                                                    min="0"
+                                                    value={currentStock.default ?? '0'}
+                                                    onChange={(e) => handleStockChange(product.id, e.target.value, 'default')}
+                                                    className="stock-input"
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 </li>
                             );
@@ -2021,7 +2183,7 @@ const App = () => {
                 ...p,
                 images: p.images || [],
                 category_ids: p.category_ids || [], 
-                stock: p.stock ?? 0,
+                stock: getProductStock(p),
             }));
             setProducts(localProducts);
 
