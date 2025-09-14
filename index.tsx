@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -363,7 +362,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         }, 1500);
     };
     
-    const isProductTotallyOutOfStock = useMemo(() => item.type === 'product' && isProductTotallyOutOfStock(item.data as Product), [item]);
+    const isItemTotallyOutOfStock = useMemo(() => item.type === 'product' && isProductTotallyOutOfStock(item.data as Product), [item]);
     
     const isSelectedVariantOutOfStock = useMemo(() => {
         if (item.type !== 'product') return false;
@@ -450,15 +449,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
                         <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
-                        {isProductTotallyOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
+                        {isItemTotallyOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
                         <p className="description">{item.data.description}</p>
                         {item.type === 'product' ? renderProductDetails() : renderKitDetails()}
                         <button 
                             className={`add-to-cart-button ${showSuccess ? 'success' : ''}`} 
                             onClick={handleAddToCartClick} 
-                            disabled={showSuccess || isProductTotallyOutOfStock || isSelectedVariantOutOfStock}
+                            disabled={showSuccess || isItemTotallyOutOfStock || isSelectedVariantOutOfStock}
                         >
-                            {isProductTotallyOutOfStock ? (
+                            {isItemTotallyOutOfStock ? (
                                 'Produto Esgotado'
                              ) : isSelectedVariantOutOfStock ? (
                                 'Variação Esgotada'
