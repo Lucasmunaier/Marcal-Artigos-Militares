@@ -305,7 +305,7 @@ main {
     align-items: center;
     flex-wrap: wrap;
     gap: 1.5rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem; /* Reduced margin */
 }
 
 .category-filters {
@@ -336,6 +336,27 @@ main {
     background-color: var(--primary-color);
     color: white;
     border-color: var(--primary-color);
+}
+.category-button.active-parent {
+    background-color: #e0ddd5;
+    border-color: #ccc;
+    color: var(--dark-color);
+}
+
+.subcategory-filters {
+    width: 100%;
+    padding: 1rem 0;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+}
+
+.subcategory-button {
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    background-color: #f7f7f7;
 }
 
 .sort-control {
@@ -1146,7 +1167,7 @@ main {
 }
 
 
-.product-list li, .stock-list li, .highlights-admin-list li {
+.product-list li, .stock-list li, .highlights-admin-list li, .product-ordering-list li {
     justify-content: flex-start;
     gap: 1rem;
 }
@@ -1244,6 +1265,9 @@ main {
     border: 1px solid #ccc;
     border-radius: 4px;
 }
+.category-edit-form select {
+    flex-basis: 150px;
+}
 .category-edit-form button {
     padding: 0.4rem 0.8rem;
     border: none;
@@ -1302,7 +1326,7 @@ main {
     object-fit: cover;
 }
 
-.image-preview-item.dragging, .highlights-admin-list li.dragging {
+.image-preview-item.dragging, .highlights-admin-list li.dragging, .product-ordering-list li.dragging {
     opacity: 0.5;
     transform: scale(1.05);
 }
@@ -1496,8 +1520,8 @@ main {
 }
 
 
-/* Highlights Admin List */
-.highlights-admin-list li {
+/* Highlights Admin & Product Ordering List */
+.highlights-admin-list li, .product-ordering-list li {
     cursor: grab;
 }
 .highlights-admin-list li .item-list-details small {

@@ -28,6 +28,8 @@ interface Product {
 interface Category {
     id: number;
     name: string;
+    parent_id?: number | null;
+    product_order?: number[] | null;
 }
 
 interface Kit {
@@ -828,7 +830,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [highlights, setHighlights] = useState<Highlight[]>(initialHighlights);
     
     // Estados de Navegação
-    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock' | 'highlights'>('menu');
+    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock' | 'highlights' | 'ordering'>('menu');
 
     // Estados de Edição
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -836,6 +838,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [editingKit, setEditingKit] = useState<Kit | null>(null);
     const [editingHighlight, setEditingHighlight] = useState<Highlight | null>(null);
     const [editingCategoryName, setEditingCategoryName] = useState('');
+    const [editingCategoryParent, setEditingCategoryParent] = useState<string>('');
     const [editingProductImage, setEditingProductImage] = useState<{ index: number; data: ProductImage } | null>(null);
     const [isHighlightEditorOpen, setIsHighlightEditorOpen] = useState(false);
 
@@ -870,6 +873,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     // Estado de Estoque
     const [stockLevels, setStockLevels] = useState<{ [key: number]: { [key: string]: number } }>({});
     const [stockChanges, setStockChanges] = useState<{ [key: number]: { [key: string]: number } }>({});
+
+    // Estado de Ordenação de Produtos
+    const [orderingCategoryId, setOrderingCategoryId] = useState<number | null>(null);
+    const [orderedProducts, setOrderedProducts] = useState<Product[]>([]);
+    const [initialProductOrder, setInitialProductOrder] = useState<number[]>([]);
+
 
     useEffect(() => {
         const initialStocks = initialProducts.reduce((acc, p) => {
@@ -951,6 +960,40 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             resetHighlightForm();
         }
     }, [editingHighlight]);
+
+    useEffect(() => {
+        if (orderingCategoryId !== null) {
+            const category = categories.find(c => c.id === orderingCategoryId);
+            const productOrder = category?.product_order || [];
+            
+            const getDescendantIds = (catId: number, allCats: Category[]): number[] => {
+                const children = allCats.filter(c => c.parent_id === catId);
+                let descendantIds: number[] = children.map(c => c.id);
+                children.forEach(child => {
+                    descendantIds = [...descendantIds, ...getDescendantIds(child.id, allCats)];
+                });
+                return descendantIds;
+            };
+
+            const categoryIdsToFilter = [orderingCategoryId, ...getDescendantIds(orderingCategoryId, categories)];
+            
+            const productsInCategory = products.filter(p => p.category_ids.some(id => categoryIdsToFilter.includes(id)));
+
+            const sorted = [...productsInCategory].sort((a, b) => {
+                const indexA = productOrder.indexOf(a.id);
+                const indexB = productOrder.indexOf(b.id);
+                if (indexA === -1 && indexB === -1) return a.name.localeCompare(b.name);
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
+            });
+            setOrderedProducts(sorted);
+            setInitialProductOrder(sorted.map(p => p.id));
+        } else {
+            setOrderedProducts([]);
+            setInitialProductOrder([]);
+        }
+    }, [orderingCategoryId, products, categories]);
 
 
     useEffect(() => {
@@ -1104,6 +1147,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         if (list === 'product_images') setter = setImagePreviewObjects;
         else if (list === 'kit_images') setter = setKitImagePreviews;
         else if (list === 'highlights') setter = setHighlights;
+        else if (list === 'product_ordering') setter = setOrderedProducts;
         else return;
         
         setter(currentItems => {
@@ -1139,9 +1183,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         e.preventDefault();
         const form = e.target as HTMLFormElement;
         const name = (form.elements.namedItem('categoryName') as HTMLInputElement).value;
+        const parentId = (form.elements.namedItem('parentId') as HTMLSelectElement).value;
+
         if (name && !categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
             setIsSubmitting(true);
-            const { data: addedCategory, error } = await supabase.from('categories').insert({ name }).select().single();
+            const categoryData = { name, parent_id: parentId ? parseInt(parentId, 10) : null };
+            const { data: addedCategory, error } = await supabase.from('categories').insert(categoryData).select().single();
             if (error) {
                 alert('Erro ao adicionar categoria: ' + error.message);
             } else {
@@ -1157,10 +1204,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const handleDeleteCategory = async (categoryId: number) => {
         const isCategoryInUseByProduct = products.some(p => (p.category_ids || []).includes(categoryId));
         const isCategoryInUseByKit = kits.some(k => (k.category_ids || []).includes(categoryId));
+        const hasSubcategories = categories.some(c => c.parent_id === categoryId);
+
         if (isCategoryInUseByProduct || isCategoryInUseByKit) {
             alert('Não é possível excluir esta categoria, pois ela está sendo usada por um ou mais produtos ou kits.');
             return;
         }
+        if (hasSubcategories) {
+            alert('Não é possível excluir esta categoria, pois ela possui subcategorias. Exclua as subcategorias primeiro.');
+            return;
+        }
+
         if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
             setDeletingItemId(`cat-${categoryId}`);
             const { error } = await supabase.from('categories').delete().eq('id', categoryId);
@@ -1178,6 +1232,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const handleStartEditCategory = (category: Category) => {
         setEditingCategory(category);
         setEditingCategoryName(category.name);
+        setEditingCategoryParent(category.parent_id?.toString() || '');
     };
 
     const handleUpdateCategory = async (e) => {
@@ -1185,9 +1240,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         if (!editingCategory || !editingCategoryName.trim()) return;
 
         setIsSubmitting(true);
+        const categoryData = {
+            name: editingCategoryName,
+            parent_id: editingCategoryParent ? parseInt(editingCategoryParent) : null
+        };
         const { data: updatedCategory, error } = await supabase
             .from('categories')
-            .update({ name: editingCategoryName })
+            .update(categoryData)
             .eq('id', editingCategory.id)
             .select()
             .single();
@@ -1721,6 +1780,28 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     };
     
+    const handleSaveProductOrder = async () => {
+        if (orderingCategoryId === null) return;
+        setIsSubmitting(true);
+        const newProductOrder = orderedProducts.map(p => p.id);
+        const { error } = await supabase
+            .from('categories')
+            .update({ product_order: newProductOrder })
+            .eq('id', orderingCategoryId);
+        
+        if (error) {
+            alert('Erro ao salvar a ordem dos produtos: ' + error.message);
+        } else {
+            alert('Ordem salva com sucesso!');
+            const newCategories = categories.map(c => 
+                c.id === orderingCategoryId ? { ...c, product_order: newProductOrder } : c
+            );
+            setCategories(newCategories);
+            onDataChange(products, newCategories, kits, highlights);
+        }
+        setIsSubmitting(false);
+    };
+    
     // --- Reusable Image Editor Component ---
     const ImageCropEditorModal = ({ image, onSave, onCancel, aspectRatio = '1 / 1' }: { image: ProductImage; onSave: (data: Partial<ProductImage>) => void; onCancel: () => void; aspectRatio?: string; }) => {
         const [zoom, setZoom] = useState(image.zoom);
@@ -1817,6 +1898,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             <button className="admin-button" onClick={() => setActiveView('kits')}>Gerenciar Kits</button>
             <button className="admin-button" onClick={() => setActiveView('stock')}>Gerenciar Estoque</button>
             <button className="admin-button" onClick={() => setActiveView('highlights')}>Gerenciar Destaques</button>
+            <button className="admin-button" onClick={() => setActiveView('ordering')}>Ordenar Produtos</button>
         </div>
     );
     
@@ -1985,60 +2067,83 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         </div>
     );
     
-    const renderCategoriesView = () => (
-        <div className="admin-view">
-            <button onClick={() => setActiveView('menu')} className="admin-back-button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                </svg>
-                Voltar ao Menu
-            </button>
-            <div className="admin-content-grid">
-                <section className="admin-section">
-                    <h3>Adicionar Categoria</h3>
-                    <form onSubmit={handleAddCategory} className="admin-form">
-                        <div className="form-group">
-                            <label htmlFor="categoryName">Nome da Categoria</label>
-                            <input type="text" id="categoryName" name="categoryName" required />
-                        </div>
-                        <button type="submit" className="admin-button" disabled={isSubmitting}>
-                            {isSubmitting ? 'Adicionando...' : 'Adicionar Categoria'}
-                        </button>
-                    </form>
-                </section>
-                <section className="admin-section">
-                    <h3>Categorias Existentes</h3>
-                    {categoriesWithoutAll.length === 0 ? (
-                        <p className="empty-list-message">Nenhuma categoria cadastrada.</p>
-                    ) : (
-                        <ul className="item-list">
-                            {categoriesWithoutAll.map(cat => (
-                                <li key={cat.id}>
-                                    {editingCategory?.id === cat.id ? (
-                                        <form onSubmit={handleUpdateCategory} className="category-edit-form">
-                                            <input type="text" value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} autoFocus />
-                                            <button type="submit" disabled={isSubmitting}>Salvar</button>
-                                            <button type="button" onClick={() => setEditingCategory(null)}>Cancelar</button>
-                                        </form>
-                                    ) : (
-                                        <>
-                                            <span className="item-list-name">{cat.name}</span>
-                                            <div className="item-list-actions">
-                                                <button onClick={() => handleStartEditCategory(cat)} className="item-list-edit-button">Editar</button>
-                                                <button onClick={() => handleDeleteCategory(cat.id)} className="item-list-delete-button" disabled={deletingItemId === `cat-${cat.id}`} aria-label={`Excluir categoria ${cat.name}`}>
-                                                    {deletingItemId === `cat-${cat.id}` ? '...' : 'Excluir'}
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </section>
+    const renderCategoriesView = () => {
+        const renderCategoryTree = (parentId: number | null = null, level = 0) => {
+            const children = categoriesWithoutAll.filter(c => c.parent_id === parentId);
+            return children.map(cat => (
+                <React.Fragment key={cat.id}>
+                    <li style={{ paddingLeft: `${level * 20}px` }}>
+                        {editingCategory?.id === cat.id ? (
+                            <form onSubmit={handleUpdateCategory} className="category-edit-form">
+                                <input type="text" value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} autoFocus />
+                                <select value={editingCategoryParent} onChange={(e) => setEditingCategoryParent(e.target.value)}>
+                                    <option value="">Nenhuma</option>
+                                    {categoriesWithoutAll
+                                        .filter(p => p.id !== cat.id) // Can't be its own parent
+                                        .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                                <button type="submit" disabled={isSubmitting}>Salvar</button>
+                                <button type="button" onClick={() => setEditingCategory(null)}>Cancelar</button>
+                            </form>
+                        ) : (
+                            <>
+                                <span className="item-list-name">{cat.name}</span>
+                                <div className="item-list-actions">
+                                    <button onClick={() => handleStartEditCategory(cat)} className="item-list-edit-button">Editar</button>
+                                    <button onClick={() => handleDeleteCategory(cat.id)} className="item-list-delete-button" disabled={deletingItemId === `cat-${cat.id}`} aria-label={`Excluir categoria ${cat.name}`}>
+                                        {deletingItemId === `cat-${cat.id}` ? '...' : 'Excluir'}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </li>
+                    {renderCategoryTree(cat.id, level + 1)}
+                </React.Fragment>
+            ));
+        };
+
+        return (
+            <div className="admin-view">
+                <button onClick={() => setActiveView('menu')} className="admin-back-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                    </svg>
+                    Voltar ao Menu
+                </button>
+                <div className="admin-content-grid">
+                    <section className="admin-section">
+                        <h3>Adicionar Categoria</h3>
+                        <form onSubmit={handleAddCategory} className="admin-form">
+                            <div className="form-group">
+                                <label htmlFor="categoryName">Nome da Categoria</label>
+                                <input type="text" id="categoryName" name="categoryName" required />
+                            </div>
+                            <div className="form-group">
+                                <label htmlFor="parentId">Categoria Pai (opcional)</label>
+                                <select id="parentId" name="parentId">
+                                    <option value="">Nenhuma</option>
+                                    {categoriesWithoutAll.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                            </div>
+                            <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                {isSubmitting ? 'Adicionando...' : 'Adicionar Categoria'}
+                            </button>
+                        </form>
+                    </section>
+                    <section className="admin-section">
+                        <h3>Categorias Existentes</h3>
+                        {categoriesWithoutAll.length === 0 ? (
+                            <p className="empty-list-message">Nenhuma categoria cadastrada.</p>
+                        ) : (
+                            <ul className="item-list">
+                                {renderCategoryTree()}
+                            </ul>
+                        )}
+                    </section>
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     const renderKitsView = () => {
         const filteredKitProducts = products.filter(p => p.name.toLowerCase().includes(kitProductSearch.toLowerCase()));
@@ -2389,6 +2494,78 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             </div>
         )
     };
+    
+    const renderOrderingView = () => {
+        const isOrderChanged = JSON.stringify(orderedProducts.map(p => p.id)) !== JSON.stringify(initialProductOrder);
+
+        return (
+            <div className="admin-view">
+                <button onClick={() => setActiveView('menu')} className="admin-back-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    Voltar ao Menu
+                </button>
+                <section className="admin-section">
+                    <div className="admin-section-header">
+                        <h3>Ordenar Produtos por Categoria</h3>
+                         {orderingCategoryId && (
+                             <button
+                                className="admin-button"
+                                onClick={handleSaveProductOrder}
+                                disabled={!isOrderChanged || isSubmitting}
+                            >
+                                {isSubmitting ? 'Salvando...' : 'Salvar Ordem'}
+                            </button>
+                         )}
+                    </div>
+                    <div className="form-group">
+                        <label htmlFor="category-order-select">Selecione uma Categoria</label>
+                        <select
+                            id="category-order-select"
+                            value={orderingCategoryId || ''}
+                            onChange={(e) => setOrderingCategoryId(e.target.value ? parseInt(e.target.value) : null)}
+                        >
+                            <option value="">-- Escolha uma categoria --</option>
+                            {categoriesWithoutAll.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </div>
+
+                    {orderingCategoryId && (
+                         <div className="admin-section">
+                            <h4>Produtos em "{categories.find(c=>c.id === orderingCategoryId)?.name}"</h4>
+                             <p>Arraste os produtos para definir a ordem de exibição na loja.</p>
+                            {orderedProducts.length === 0 ? (
+                                <p className="empty-list-message">Nenhum produto nesta categoria.</p>
+                            ) : (
+                                <ul className="item-list product-ordering-list">
+                                    {orderedProducts.map((product, index) => {
+                                        const imageObject = product.images?.[0];
+                                        return (
+                                            <li 
+                                                key={product.id}
+                                                draggable
+                                                className={draggedItem?.list === 'product_ordering' && draggedItem.index === index ? 'dragging' : ''}
+                                                onDragStart={() => handleDragStart(index, 'product_ordering')}
+                                                onDragOver={handleDragOver}
+                                                onDrop={() => handleDrop(index, 'product_ordering')}
+                                                onDragEnd={handleDragEnd}
+                                            >
+                                                <span className="drag-handle">::</span>
+                                                <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
+                                                <div className="item-list-details">
+                                                    <span className="item-list-name">{product.name}</span>
+                                                    <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+                </section>
+            </div>
+        );
+    };
 
     return (
         <div className="admin-container">
@@ -2408,6 +2585,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             {activeView === 'kits' && renderKitsView()}
             {activeView === 'stock' && renderStockView()}
             {activeView === 'highlights' && renderHighlightsView()}
+            {activeView === 'ordering' && renderOrderingView()}
         </div>
     );
 };
@@ -2439,6 +2617,7 @@ const App = () => {
     const [highlights, setHighlights] = useState<DisplayHighlight[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number>(1); // 1 = 'Todos'
+    const [activeParentCategory, setActiveParentCategory] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOption, setSortOption] = useState('default');
     const [selectedDisplayItem, setSelectedDisplayItem] = useState<DisplayItem | null>(null);
@@ -2683,12 +2862,30 @@ const App = () => {
         setSearchQuery(query);
         if (query.trim() !== '') {
             setSelectedCategory(1); // Redefine para "Todos" quando uma consulta de pesquisa é inserida
+            setActiveParentCategory(null);
         }
     };
     
-    const handleCategoryClick = (categoryId: number) => {
-        setSelectedCategory(categoryId);
-        setSearchQuery(''); // Limpa a pesquisa quando uma categoria é selecionada
+    const handleCategoryClick = (category: Category) => {
+        setSearchQuery('');
+        if (category.id === 1) { // Clicked "Todos"
+            setSelectedCategory(1);
+            setActiveParentCategory(null);
+            return;
+        }
+
+        if (!category.parent_id) { // Clicked a top-level category
+            if (activeParentCategory === category.id) { // Clicking the active parent again
+                 setSelectedCategory(1); // Go back to "Todos"
+                 setActiveParentCategory(null);
+            } else {
+                 setSelectedCategory(category.id);
+                 setActiveParentCategory(category.id);
+            }
+        } else { // Clicked a subcategory
+             setSelectedCategory(category.id);
+             setActiveParentCategory(category.parent_id);
+        }
     };
 
 
@@ -2712,12 +2909,47 @@ const App = () => {
         if (selectedCategory === 1) {
             return displayItems;
         }
+        
+        const getDescendantIds = (catId: number, allCats: Category[]): number[] => {
+            const children = allCats.filter(c => c.parent_id === catId);
+            let descendantIds: number[] = children.map(c => c.id);
+            children.forEach(child => {
+                descendantIds = [...descendantIds, ...getDescendantIds(child.id, allCats)];
+            });
+            return descendantIds;
+        };
+        
+        const category = categories.find(c => c.id === selectedCategory);
+        let categoryIdsToFilter = [selectedCategory];
+        if (category && !category.parent_id) { // It's a parent category
+            categoryIdsToFilter = [...categoryIdsToFilter, ...getDescendantIds(selectedCategory, categories)];
+        }
 
-        return displayItems.filter(item => (item.data.category_ids || []).includes(selectedCategory));
-    }, [displayItems, searchQuery, selectedCategory]);
+        return displayItems.filter(item => (item.data.category_ids || []).some(id => categoryIdsToFilter.includes(id)));
+    }, [displayItems, searchQuery, selectedCategory, categories]);
 
     const sortedDisplayItems = useMemo(() => {
         const sortableItems = [...filteredDisplayItems];
+        if (sortOption === 'default' && selectedCategory !== 1) {
+             const category = categories.find(c => c.id === selectedCategory);
+             if (category && category.product_order && category.product_order.length > 0) {
+                const orderMap = new Map(category.product_order.map((id, index) => [id, index]));
+                return sortableItems.sort((a, b) => {
+                    const aIsProduct = a.type === 'product';
+                    const bIsProduct = b.type === 'product';
+                    if (!aIsProduct || !bIsProduct) return 0; // Don't sort kits this way
+
+                    const indexA = orderMap.get((a.data as Product).id);
+                    const indexB = orderMap.get((b.data as Product).id);
+
+                    if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
+                    if (indexA !== undefined) return -1;
+                    if (indexB !== undefined) return 1;
+                    return a.data.name.localeCompare(b.data.name);
+                });
+             }
+        }
+        
         switch (sortOption) {
             case 'price-asc':
                 return sortableItems.sort((a, b) => a.data.price - b.data.price);
@@ -2730,7 +2962,7 @@ const App = () => {
             default:
                 return sortableItems;
         }
-    }, [filteredDisplayItems, sortOption]);
+    }, [filteredDisplayItems, sortOption, selectedCategory, categories]);
 
     const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
     
@@ -2741,6 +2973,9 @@ const App = () => {
     if (currentView === 'adminDashboard') {
         return <AdminDashboard initialProducts={products} initialCategories={categories} initialKits={kits} initialHighlights={highlights} onDataChange={handleDataChange} onBackToStore={navigateToStore} />;
     }
+    
+    const topLevelCategories = categories.filter(c => c.id !== 1 && !c.parent_id);
+    const subCategories = categories.filter(c => !!c.parent_id);
 
     return (
         <>
@@ -2756,14 +2991,22 @@ const App = () => {
                 <Carousel items={highlights} onProductClick={setSelectedDisplayItem} />
                 <div className="main-controls-container">
                     <div className="category-filters">
-                        {categories.map(cat => (
-                            <button
-                                key={cat.id}
-                                className={`category-button ${selectedCategory === cat.id ? 'active' : ''}`}
-                                onClick={() => handleCategoryClick(cat.id)}
-                            >
-                                {cat.name}
-                            </button>
+                        <button
+                            key="all"
+                            className={`category-button ${selectedCategory === 1 ? 'active' : ''}`}
+                            onClick={() => handleCategoryClick({ id: 1, name: 'Todos' })}
+                        >
+                            Todos
+                        </button>
+                        {topLevelCategories.map(cat => (
+                             <React.Fragment key={cat.id}>
+                                <button
+                                    className={`category-button ${activeParentCategory === cat.id ? 'active-parent' : ''} ${selectedCategory === cat.id ? 'active' : ''}`}
+                                    onClick={() => handleCategoryClick(cat)}
+                                >
+                                    {cat.name}
+                                </button>
+                             </React.Fragment>
                         ))}
                     </div>
                     <div className="sort-control">
@@ -2783,6 +3026,19 @@ const App = () => {
                         </select>
                     </div>
                 </div>
+                 {activeParentCategory && (
+                    <div className="subcategory-filters">
+                         {subCategories.filter(sc => sc.parent_id === activeParentCategory).map(subCat => (
+                             <button
+                                key={subCat.id}
+                                className={`category-button subcategory-button ${selectedCategory === subCat.id ? 'active' : ''}`}
+                                onClick={() => handleCategoryClick(subCat)}
+                            >
+                                {subCat.name}
+                            </button>
+                         ))}
+                    </div>
+                )}
 
                 {isLoading ? (
                     <div className="product-grid">
