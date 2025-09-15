@@ -128,20 +128,66 @@ const isProductTotallyOutOfStock = (product: Product): boolean => {
     return totalStock <= 0;
 };
 
+/**
+ * Custom hook to observe when an element enters the viewport.
+ */
+const useIntersectionObserver = (options: IntersectionObserverInit) => {
+    const [isIntersecting, setIsIntersecting] = useState(false);
+    const ref = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const element = ref.current;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                // Update state when element is intersecting
+                if (entry.isIntersecting) {
+                    setIsIntersecting(true);
+                    // Stop observing once it's visible to save resources
+                    if (element) {
+                        observer.unobserve(element);
+                    }
+                }
+            },
+            options
+        );
+
+        if (element) {
+            observer.observe(element);
+        }
+
+        return () => {
+            if (element) {
+                observer.unobserve(element);
+            }
+        };
+    }, [options]); // Re-run effect only if options object changes identity
+
+    return [ref, isIntersecting] as const;
+};
+
 
 // --- COMPONENTES DA UI ---
-const FramedImage = ({ image, className, altText }: { image: ProductImage | null, className?: string, altText: string }) => {
-    const styles = image
-        ? {
-            backgroundImage: `url(${image.url})`,
-            backgroundSize: `${image.zoom * 100}%`,
-            backgroundPosition: `${image.pos_x * 100}% ${image.pos_y * 100}%`,
+const FramedImage = ({ image, className, altText, isVisible = true }: { image: ProductImage | null, className?: string, altText: string, isVisible?: boolean }) => {
+    let styles: React.CSSProperties = {};
+
+    if (isVisible) {
+        if (image) {
+            styles = {
+                backgroundImage: `url(${image.url})`,
+                backgroundSize: `${image.zoom * 100}%`,
+                backgroundPosition: `${image.pos_x * 100}% ${image.pos_y * 100}%`,
+            };
+        } else {
+            styles = {
+                backgroundImage: `url(${PLACEHOLDER_IMAGE})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center center',
+            };
         }
-        : {
-            backgroundImage: `url(${PLACEHOLDER_IMAGE})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center center',
-        };
+    } else {
+        // Use a background color from the theme to hold the space without a network request
+        styles.backgroundColor = 'var(--light-color)';
+    }
 
     return <div className={`framed-image ${className || ''}`} style={styles} role="img" aria-label={altText}></div>;
 };
@@ -295,6 +341,14 @@ const Carousel = ({ items, onProductClick }) => {
 
 
 const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductClick: (item: DisplayItem) => void }) => {
+    // Options for the observer to start loading images before they are on screen
+    const observerOptions = useMemo(() => ({
+        rootMargin: '200px 0px', // Start loading when the item is 200px away from the viewport vertically
+        threshold: 0.01
+    }), []);
+
+    const [ref, isVisible] = useIntersectionObserver(observerOptions);
+
     const isOutOfStock = useMemo(() => {
         return item.type === 'product' && isProductTotallyOutOfStock(item.data as Product);
     }, [item]);
@@ -303,13 +357,13 @@ const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductCli
     const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
 
     return (
-        <div className={`product-card ${isOutOfStock ? 'out-of-stock' : ''}`} onClick={() => !isOutOfStock && onProductClick(item)}>
+        <div ref={ref} className={`product-card ${isOutOfStock ? 'out-of-stock' : ''}`} onClick={() => !isOutOfStock && onProductClick(item)}>
             {isOutOfStock && <span className="item-badge stock-badge">Sem Estoque</span>}
             {item.type === 'kit' && <span className="item-badge">KIT</span>}
             {item.type === 'product' ? (
-                <FramedImage image={imageObject} className="product-card-image" altText={item.data.name} />
+                <FramedImage image={imageObject} isVisible={isVisible} className="product-card-image" altText={item.data.name} />
             ) : (
-                <img src={kitImageUrl || PLACEHOLDER_IMAGE} alt={item.data.name} className="product-card-image-kit" />
+                <img src={kitImageUrl || PLACEHOLDER_IMAGE} alt={item.data.name} className="product-card-image-kit" loading="lazy" />
             )}
             <div className="product-card-info">
                 <h3>{item.data.name}</h3>
