@@ -438,16 +438,27 @@ main {
 
 .item-badge {
     position: absolute;
-    top: 10px;
-    right: 10px;
-    background-color: var(--success-color);
-    color: white;
     padding: 0.3rem 0.6rem;
     border-radius: 5px;
     font-size: 0.8rem;
     font-weight: 600;
     z-index: 2;
+    color: white;
 }
+
+.item-badge.kit-badge {
+    background-color: var(--success-color);
+    top: 10px;
+    right: 10px;
+}
+
+.item-badge.discount-badge {
+    background-color: var(--danger-color);
+    top: 10px;
+    left: 10px;
+    right: auto;
+}
+
 
 /* Estoque */
 .product-card.out-of-stock {
@@ -643,6 +654,23 @@ main {
     color: #555;
 }
 
+.price-container {
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+}
+.price.discounted {
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+.price.original {
+    font-size: 1.2rem;
+    color: var(--secondary-color);
+    text-decoration: line-through;
+}
+
 .product-controls {
     display: flex;
     flex-direction: column;
@@ -810,6 +838,15 @@ main {
 .cart-item-info p {
     font-size: 0.9rem;
     color: #666;
+}
+
+.cart-item-price-container {
+    margin-top: 0.3rem;
+}
+.cart-item-price.original {
+    font-size: 0.85rem;
+    text-decoration: line-through;
+    color: #999;
 }
 
 .cart-item-kit-configurations {
@@ -1000,6 +1037,15 @@ main {
 }
 .admin-form-actions .admin-button {
     margin-top: 0;
+}
+
+.form-group-inline {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+.form-group-inline .form-group {
+    flex: 1;
 }
 
 /* New Admin Menu Layout */

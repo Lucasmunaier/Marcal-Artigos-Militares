@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -39,6 +38,7 @@ interface Kit {
     images: string[];
     products: Product[];
     category_ids: number[];
+    discount_percentage?: number;
 }
 
 interface Highlight {
@@ -78,6 +78,7 @@ interface CartKitItem {
     quantity: number;
     cartItemId: string;
     productConfigurations: { [productId: number]: { size?: string; customText?: string; quantity: number; } };
+    originalPrice?: number;
 }
 
 type CartItem = CartProductItem | CartKitItem;
@@ -367,13 +368,18 @@ const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductCli
         return item.type === 'product' && isProductTotallyOutOfStock(item.data as Product);
     }, [item]);
     
+    const kitData = item.type === 'kit' ? item.data as Kit : null;
+    const hasDiscount = !!(kitData?.discount_percentage && kitData.discount_percentage > 0);
+    
     const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
     const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
 
     return (
         <div ref={ref} className={`product-card ${isOutOfStock ? 'out-of-stock' : ''}`} onClick={() => !isOutOfStock && onProductClick(item)}>
             {isOutOfStock && <span className="item-badge stock-badge">Sem Estoque</span>}
-            {item.type === 'kit' && <span className="item-badge">KIT</span>}
+            {hasDiscount && <span className="item-badge discount-badge">-{kitData?.discount_percentage}%</span>}
+            {item.type === 'kit' && <span className="item-badge kit-badge">KIT</span>}
+            
             {item.type === 'product' ? (
                 <FramedImage image={imageObject} isVisible={isVisible} className="product-card-image" altText={item.data.name} />
             ) : (
@@ -399,7 +405,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
 
     const stockData = useMemo(() => (item.type === 'product' ? getProductStock(item.data as Product) : {}), [item]);
 
-    const dynamicKitPrice = useMemo(() => {
+    const originalKitPrice = useMemo(() => {
         if (item.type !== 'kit') return item.data.price;
         
         const kit = item.data as Kit;
@@ -409,6 +415,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
             return total + (product.price * itemQuantity);
         }, 0);
     }, [item, kitConfigurations]);
+
+    const discountedKitPrice = useMemo(() => {
+        if (item.type !== 'kit') return null;
+        const kit = item.data as Kit;
+        if (!kit.discount_percentage || kit.discount_percentage <= 0) return null;
+
+        const discountMultiplier = 1 - (kit.discount_percentage / 100);
+        return originalKitPrice * discountMultiplier;
+    }, [item, originalKitPrice]);
 
     useEffect(() => {
         if (item.type === 'product') {
@@ -482,14 +497,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     return;
                 }
             }
-             const kitWithDynamicPrice = {
+             const finalPrice = discountedKitPrice !== null ? discountedKitPrice : originalKitPrice;
+             const kitWithFinalPrice = {
                 ...item,
                 data: {
                     ...item.data,
-                    price: dynamicKitPrice
+                    price: finalPrice
                 }
             };
-            onAddToCart(kitWithDynamicPrice, 1, undefined, undefined, kitConfigurations);
+            onAddToCart(kitWithFinalPrice, 1, undefined, undefined, kitConfigurations, originalKitPrice);
         }
         
         setShowSuccess(true);
@@ -645,9 +661,16 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     </div>
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
-                        <p className="price">R$ {
-                            (item.type === 'kit' ? dynamicKitPrice : item.data.price).toFixed(2).replace('.', ',')
-                        }</p>
+                        {item.type === 'kit' && discountedKitPrice !== null ? (
+                            <div className="price-container">
+                                <p className="price discounted">R$ {discountedKitPrice.toFixed(2).replace('.', ',')}</p>
+                                <p className="price original">R$ {originalKitPrice.toFixed(2).replace('.', ',')}</p>
+                            </div>
+                        ) : (
+                            <p className="price">R$ {
+                                (item.type === 'kit' ? originalKitPrice : item.data.price).toFixed(2).replace('.', ',')
+                            }</p>
+                        )}
                         {isItemTotallyOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
                         <p className="description">{item.data.description}</p>
                         
@@ -728,7 +751,14 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                                                 })}
                                             </ul>
                                         )}
-                                        <p>R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                                        {(item as CartKitItem).originalPrice && (item as CartKitItem).originalPrice! > item.data.price ? (
+                                            <div className="cart-item-price-container">
+                                                <p className="cart-item-price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                                                <p className="cart-item-price original">R$ {(item as CartKitItem).originalPrice!.toFixed(2).replace('.', ',')}</p>
+                                            </div>
+                                        ) : (
+                                            <p>R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                                        )}
                                     </div>
                                     <div className="cart-item-actions">
                                         <button onClick={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}>-</button>
@@ -824,7 +854,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [imagePreviewObjects, setImagePreviewObjects] = useState<ProductImage[]>([]);
     
     // Formulário de Kit
-    const [kitForm, setKitForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[] });
+    const [kitForm, setKitForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], discount_percentage: '' });
     const [kitImageFiles, setKitImageFiles] = useState<File[]>([]);
     const [kitImagePreviews, setKitImagePreviews] = useState<string[]>([]);
     const [kitExistingImages, setKitExistingImages] = useState<string[]>([]);
@@ -890,6 +920,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 description: editingKit.description,
                 price: editingKit.price.toString(),
                 category_ids: safeCategoryIds,
+                discount_percentage: (editingKit.discount_percentage || '').toString(),
             });
             setKitImagePreviews(safeImages);
             setKitExistingImages(safeImages);
@@ -947,7 +978,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     };
 
     const resetKitForm = () => {
-        setKitForm({ name: '', description: '', price: '', category_ids: [] });
+        setKitForm({ name: '', description: '', price: '', category_ids: [], discount_percentage: '' });
         kitImagePreviews.forEach(url => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); });
         setKitImageFiles([]);
         setKitImagePreviews([]);
@@ -1376,6 +1407,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             name: kitForm.name,
             description: descriptionPayload,
             price: parseFloat(kitForm.price),
+            discount_percentage: parseFloat(kitForm.discount_percentage) || 0,
         };
 
         const productAssociations = Array.from(selectedKitProducts);
@@ -1394,6 +1426,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     images: finalImageUrls, 
                     products: products.filter(p => productAssociations.includes(p.id)),
                     category_ids: kitForm.category_ids || [],
+                    discount_percentage: updatedKit.discount_percentage || 0,
                 };
                 const newKits = kits.map(k => k.id === updatedKit.id ? updatedKitWithProducts : k);
                 setKits(newKits);
@@ -1413,6 +1446,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     images: finalImageUrls,
                     products: products.filter(p => productAssociations.includes(p.id)),
                     category_ids: kitForm.category_ids || [],
+                    discount_percentage: addedKit.discount_percentage || 0,
                 };
                 const newKits = [...kits, addedKitWithProducts];
                 setKits(newKits);
@@ -2023,7 +2057,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     <form onSubmit={handleKitFormSubmit} className="admin-form">
                         <div className="form-group"><label htmlFor="kitName">Nome do Kit</label><input type="text" id="kitName" name="name" value={kitForm.name} onChange={handleKitFormChange} required /></div>
                         <div className="form-group"><label htmlFor="kitDescription">Descrição</label><textarea id="kitDescription" name="description" value={kitForm.description} onChange={handleKitFormChange}></textarea></div>
-                        <div className="form-group"><label htmlFor="kitPrice">Preço (Informativo)</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
+                        <div className="form-group-inline">
+                            <div className="form-group"><label htmlFor="kitPrice">Preço (Informativo)</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
+                            <div className="form-group"><label htmlFor="kitDiscount">Desconto (%)</label><input type="number" id="kitDiscount" name="discount_percentage" value={kitForm.discount_percentage} onChange={handleKitFormChange} min="0" max="100" step="1" placeholder="ex: 10" /></div>
+                        </div>
                         
                         <div className="form-group">
                             <label>Categorias</label>
@@ -2477,6 +2514,7 @@ const App = () => {
                         images: parsedImages,
                         products: kitProducts,
                         category_ids: parsedCategoryIds,
+                        discount_percentage: kit.discount_percentage || 0,
                     };
                 });
                 setKits(kitsWithProducts);
@@ -2490,7 +2528,7 @@ const App = () => {
     }, []);
 
     // Handlers
-    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number } }) => {
+    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number } }, originalKitPrice?: number) => {
         setIsCartAnimating(true);
         setTimeout(() => setIsCartAnimating(false), 600);
     
@@ -2533,7 +2571,9 @@ const App = () => {
                         data: item.data,
                         quantity,
                         cartItemId,
-                        productConfigurations: kitConfigs || {}
+                        productConfigurations: kitConfigs || {},
+                        // FIX: Correctly assign originalKitPrice to the originalPrice property.
+                        originalPrice: originalKitPrice
                     };
                     return [...prevCart, newItem];
                 }
@@ -2592,9 +2632,15 @@ const App = () => {
                             return `\n    - ${product.name} (${details.join(', ')})`;
                         }).join('');
                     }
+                     const kitItem = item as CartKitItem;
+                     let priceDetails = `Preço por Kit: R$ ${kitItem.data.price.toFixed(2).replace('.', ',')}`;
+                     if (kitItem.originalPrice && kitItem.originalPrice > kitItem.data.price) {
+                         priceDetails += ` (de R$ ${kitItem.originalPrice.toFixed(2).replace('.', ',')})`;
+                     }
+
                      return `*${item.data.name} (Kit)*${configDetails}\n` +
                            `  Quantidade de Kits: ${item.quantity}\n` +
-                           `  Preço por Kit: R$ ${item.data.price.toFixed(2).replace('.', ',')}`;
+                           `  ${priceDetails}`;
                 }
             }).join('\n\n') +
             `\n\n*Total do Pedido: R$ ${total.toFixed(2).replace('.', ',')}*`;
