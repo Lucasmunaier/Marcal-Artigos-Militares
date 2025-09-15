@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -76,6 +77,7 @@ interface CartKitItem {
     data: Kit;
     quantity: number;
     cartItemId: string;
+    productConfigurations: { [productId: number]: { size?: string; customText?: string; quantity: number; } };
 }
 
 type CartItem = CartProductItem | CartKitItem;
@@ -95,6 +97,18 @@ const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+I
 const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
 
 // --- FUNÇÕES HELPER ---
+const sanitizeFileName = (fileName: string): string => {
+    // Normalize to NFD Unicode form to separate diacritics from letters
+    const normalized = fileName.normalize("NFD");
+    // Remove diacritics
+    const withoutDiacritics = normalized.replace(/[\u0300-\u036f]/g, "");
+    // Replace spaces with underscores
+    const withUnderscores = withoutDiacritics.replace(/\s+/g, '_');
+    // Remove any character that is not a letter, number, dot, underscore, or hyphen
+    const sanitized = withUnderscores.replace(/[^a-zA-Z0-9._-]/g, '');
+    return sanitized;
+};
+
 const getProductStock = (product: Product | undefined | null): { [key: string]: number } => {
     if (!product || !product.stock) {
         return { default: 0 };
@@ -378,23 +392,57 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [selectedSize, setSelectedSize] = useState('');
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
-    
+    const [kitConfigurations, setKitConfigurations] = useState<{ [productId: number]: { size?: string; customText?: string; quantity: number; } }>({});
+
     const images = useMemo(() => (item.type === 'product' ? item.data.images : (item.data.images || []).map(url => ({ url, zoom: 1, pos_x: 0.5, pos_y: 0.5 })) ) || [], [item]);
     const [mainImage, setMainImage] = useState<ProductImage | null>(images[0] || null);
 
     const stockData = useMemo(() => (item.type === 'product' ? getProductStock(item.data as Product) : {}), [item]);
+
+    const dynamicKitPrice = useMemo(() => {
+        if (item.type !== 'kit') return item.data.price;
+        
+        const kit = item.data as Kit;
+        return (kit.products || []).reduce((total, product) => {
+            const config = kitConfigurations[product.id];
+            const itemQuantity = config?.quantity || 1;
+            return total + (product.price * itemQuantity);
+        }, 0);
+    }, [item, kitConfigurations]);
 
     useEffect(() => {
         if (item.type === 'product') {
             const product = item.data as Product;
             const firstAvailableSize = (product.sizes || []).find(size => (stockData[size] ?? 0) > 0);
             setSelectedSize(firstAvailableSize || product.sizes?.[0] || '');
+        } else if (item.type === 'kit') {
+            const initialConfigs = {};
+            (item.data.products || []).forEach(p => {
+                const productStock = getProductStock(p);
+                const firstAvailableSize = p.sizes?.find(size => (productStock[size] ?? 0) > 0);
+                initialConfigs[p.id] = {
+                    size: firstAvailableSize || p.sizes?.[0] || '',
+                    customText: '',
+                    quantity: 1,
+                };
+            });
+            setKitConfigurations(initialConfigs);
         }
     }, [item, stockData]);
 
     useEffect(() => {
         setMainImage(images[0] || null);
     }, [images]);
+
+    const handleKitConfigurationChange = (productId: number, field: 'size' | 'customText' | 'quantity', value: string | number) => {
+        setKitConfigurations(prev => ({
+            ...prev,
+            [productId]: {
+                ...(prev[productId] || { quantity: 1 }),
+                [field]: value
+            }
+        }));
+    };
 
     const handleAddToCartClick = () => {
         if (item.type === 'product') {
@@ -421,8 +469,29 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     return;
                 }
             }
+            onAddToCart(item, quantity, selectedSize, customText);
+        } else { // It's a kit
+            const kit = item.data as Kit;
+            for (const p of (kit.products || [])) {
+                if (p.is_customizable && !kitConfigurations[p.id]?.customText?.trim()) {
+                    alert(`Por favor, insira o texto para "${p.name}".`);
+                    return;
+                }
+                if (p.sizes?.length > 0 && !kitConfigurations[p.id]?.size) {
+                    alert(`Por favor, selecione um tamanho para "${p.name}".`);
+                    return;
+                }
+            }
+             const kitWithDynamicPrice = {
+                ...item,
+                data: {
+                    ...item.data,
+                    price: dynamicKitPrice
+                }
+            };
+            onAddToCart(kitWithDynamicPrice, 1, undefined, undefined, kitConfigurations);
         }
-        onAddToCart(item, quantity, selectedSize, customText);
+        
         setShowSuccess(true);
         setTimeout(() => {
             setShowSuccess(false);
@@ -439,6 +508,23 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         }
         return (stockData['default'] ?? 0) <= 0;
     }, [item, selectedSize, stockData]);
+    
+    const isKitConfigurationInvalid = useMemo(() => {
+        if (item.type !== 'kit') return false;
+        const kit = item.data as Kit;
+        for (const p of (kit.products || [])) {
+            if (p.is_customizable && !kitConfigurations[p.id]?.customText?.trim()) {
+                return true;
+            }
+            if (p.sizes?.length > 0 && !kitConfigurations[p.id]?.size) {
+                return true;
+            }
+             if ((kitConfigurations[p.id]?.quantity || 0) < 1) {
+                return true;
+            }
+        }
+        return false;
+    }, [item, kitConfigurations]);
 
     const renderProductDetails = () => {
         const product = item.data as Product;
@@ -476,17 +562,61 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     
     const renderKitDetails = () => {
         const kit = item.data as Kit;
+        const allProducts = kit.products || [];
+
         return (
             <div className="kit-details">
-                <h4>Itens Inclusos no Kit:</h4>
-                <ul className="kit-item-list">
-                    {(kit.products || []).map(p => <li key={p.id}>{p.name}</li>)}
-                </ul>
-                 <div className="product-controls">
-                    <div className="form-group">
-                        <label htmlFor="quantity">Quantidade de Kits:</label>
-                        <input id="quantity" type="number" value={quantity} onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value)))} min="1" />
-                    </div>
+                <div className="kit-configuration-section">
+                    <h4>Configure os itens do kit:</h4>
+                    {allProducts.map(p => {
+                        const productStock = getProductStock(p);
+                        const config = kitConfigurations[p.id] || { quantity: 1 };
+                        return (
+                            <div key={p.id} className="kit-product-config-item">
+                                <h5>{p.name}</h5>
+                                <div className="kit-product-controls">
+                                    {p.sizes?.length > 0 && (
+                                        <div className="form-group">
+                                            <label htmlFor={`kit-prod-size-${p.id}`}>Tamanho:</label>
+                                            <select 
+                                                id={`kit-prod-size-${p.id}`} 
+                                                value={config.size || ''} 
+                                                onChange={(e) => handleKitConfigurationChange(p.id, 'size', e.target.value)}
+                                            >
+                                                {p.sizes.map(size => {
+                                                    const isOutOfStock = (productStock[size] ?? 0) <= 0;
+                                                    return <option key={size} value={size} disabled={isOutOfStock}>{size} {isOutOfStock ? '(Esgotado)' : ''}</option>;
+                                                })}
+                                            </select>
+                                        </div>
+                                    )}
+                                    {p.is_customizable && (
+                                        <div className="form-group">
+                                            <label htmlFor={`kit-prod-custom-${p.id}`}>{p.custom_text_label || 'Personalização'}</label>
+                                            <input 
+                                                type="text" 
+                                                id={`kit-prod-custom-${p.id}`} 
+                                                value={config.customText || ''}
+                                                onChange={(e) => handleKitConfigurationChange(p.id, 'customText', e.target.value)}
+                                                placeholder="Digite o texto"
+                                            />
+                                        </div>
+                                    )}
+                                     <div className="form-group">
+                                        <label htmlFor={`kit-prod-qty-${p.id}`}>Quantidade:</label>
+                                        <input
+                                            id={`kit-prod-qty-${p.id}`}
+                                            type="number"
+                                            value={config.quantity}
+                                            onChange={(e) => handleKitConfigurationChange(p.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                                            min="1"
+                                            className="kit-item-quantity-input"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
         )
@@ -515,19 +645,25 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     </div>
                     <div className="product-detail-info">
                         <h2>{item.data.name}</h2>
-                        <p className="price">R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
+                        <p className="price">R$ {
+                            (item.type === 'kit' ? dynamicKitPrice : item.data.price).toFixed(2).replace('.', ',')
+                        }</p>
                         {isItemTotallyOutOfStock && <p className="stock-message-error">Produto Esgotado</p>}
                         <p className="description">{item.data.description}</p>
+                        
                         {item.type === 'product' ? renderProductDetails() : renderKitDetails()}
+
                         <button 
                             className={`add-to-cart-button ${showSuccess ? 'success' : ''}`} 
                             onClick={handleAddToCartClick} 
-                            disabled={showSuccess || isItemTotallyOutOfStock || isSelectedVariantOutOfStock}
+                            disabled={showSuccess || isItemTotallyOutOfStock || isSelectedVariantOutOfStock || isKitConfigurationInvalid}
                         >
                             {isItemTotallyOutOfStock ? (
                                 'Produto Esgotado'
                              ) : isSelectedVariantOutOfStock ? (
                                 'Variação Esgotada'
+                             ) : isKitConfigurationInvalid ? (
+                                'Configure o Kit'
                             ) : showSuccess ? (
                                 <>Adicionado! <span className="checkmark">✓</span></>
                             ) : (
@@ -570,6 +706,28 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                                         <h4>{item.data.name} {item.type === 'kit' && '(Kit)'}</h4>
                                         {item.type === 'product' && item.selectedSize && item.data.sizes?.length > 0 && <p>Tamanho: {item.selectedSize}</p>}
                                         {item.type === 'product' && item.data.is_customizable && item.customText && <p>{item.data.custom_text_label || 'Personalização'}: "{item.customText}"</p>}
+                                        {item.type === 'kit' && item.productConfigurations && (
+                                            <ul className="cart-item-kit-configurations">
+                                                {Object.entries(item.productConfigurations).map(([productId, config]) => {
+                                                    const product = item.data.products.find(p => p.id === parseInt(productId));
+                                                    if (!product) return null;
+                                                    
+                                                    const typedConfig = config as { size?: string; customText?: string; quantity: number };
+                                                    const details = [];
+                                                    if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
+                                                    if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
+                                                    if (typedConfig.quantity > 0) details.push(`Qtd: ${typedConfig.quantity}`);
+
+                                                    if (details.length === 0) return null;
+
+                                                    return (
+                                                        <li key={productId}>
+                                                            - {product.name}: {details.join(', ')}
+                                                        </li>
+                                                    );
+                                                })}
+                                            </ul>
+                                        )}
                                         <p>R$ {item.data.price.toFixed(2).replace('.', ',')}</p>
                                     </div>
                                     <div className="cart-item-actions">
@@ -1021,7 +1179,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         const uploadedImageUrls: { [key: string]: string } = {};
         const uploadPromises = imageFiles.map(async (file, index) => {
             const blobUrl = imagePreviewObjects.filter(p => p.url.startsWith('blob:'))[index].url;
-            const filePath = `public/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+            const filePath = `public/${Date.now()}-${sanitizeFileName(file.name)}`;
             const { error } = await supabase.storage.from('product-images').upload(filePath, file);
             if (error) throw new Error(`Erro no upload da imagem: ${error.message}`);
             const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
@@ -1181,7 +1339,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
         const uploadedImageUrls: string[] = [];
         for (const file of kitImageFiles) {
-            const filePath = `public/kit-${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+            const filePath = `public/kit-${Date.now()}-${sanitizeFileName(file.name)}`;
             const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
             if (uploadError) {
                 alert('Erro ao fazer upload da imagem do kit: ' + uploadError.message);
@@ -1446,7 +1604,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             highlightData.product_id = null;
             if (highlightImageFile) { // If a new file is uploaded
                 const file = highlightImageFile;
-                const filePath = `highlights/${Date.now()}-${file.name.replace(/\s/g, '_')}`;
+                const filePath = `highlights/${Date.now()}-${sanitizeFileName(file.name)}`;
                 const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
                 if (uploadError) {
                     alert('Erro no upload: ' + uploadError.message);
@@ -1865,7 +2023,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     <form onSubmit={handleKitFormSubmit} className="admin-form">
                         <div className="form-group"><label htmlFor="kitName">Nome do Kit</label><input type="text" id="kitName" name="name" value={kitForm.name} onChange={handleKitFormChange} required /></div>
                         <div className="form-group"><label htmlFor="kitDescription">Descrição</label><textarea id="kitDescription" name="description" value={kitForm.description} onChange={handleKitFormChange}></textarea></div>
-                        <div className="form-group"><label htmlFor="kitPrice">Preço do Kit</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
+                        <div className="form-group"><label htmlFor="kitPrice">Preço (Informativo)</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
                         
                         <div className="form-group">
                             <label>Categorias</label>
@@ -2332,7 +2490,7 @@ const App = () => {
     }, []);
 
     // Handlers
-    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string) => {
+    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number } }) => {
         setIsCartAnimating(true);
         setTimeout(() => setIsCartAnimating(false), 600);
     
@@ -2341,14 +2499,16 @@ const App = () => {
             let existingItem: CartItem | undefined;
     
             if (item.type === 'product') {
-                const product = item.data;
+                const product = item.data as Product;
                 const sizePart = product.sizes?.length > 0 ? selectedSize : 'no-size';
                 const customPart = product.is_customizable ? customText?.trim() || '' : 'no-custom';
                 cartItemId = `product-${product.id}-${sizePart}-${customPart}`;
                 existingItem = prevCart.find(i => i.cartItemId === cartItemId);
-            } else {
-                const kit = item.data;
-                cartItemId = `kit-${kit.id}`;
+            } else { // Kit
+                const kit = item.data as Kit;
+                // Generate a unique ID based on configurations, sorting keys for consistency
+                const configString = JSON.stringify(Object.entries(kitConfigs || {}).sort());
+                cartItemId = `kit-${kit.id}-${configString}`;
                 existingItem = prevCart.find(i => i.cartItemId === cartItemId);
             }
     
@@ -2367,12 +2527,13 @@ const App = () => {
                         cartItemId
                     };
                     return [...prevCart, newItem];
-                } else {
+                } else { // Kit
                     const newItem: CartKitItem = {
                         type: 'kit',
                         data: item.data,
                         quantity,
-                        cartItemId
+                        cartItemId,
+                        productConfigurations: kitConfigs || {}
                     };
                     return [...prevCart, newItem];
                 }
@@ -2415,9 +2576,25 @@ const App = () => {
                            `  Quantidade: ${item.quantity}\n` +
                            `  Preço: R$ ${item.data.price.toFixed(2).replace('.', ',')}`;
                 } else { // Kit
-                     return `*${item.data.name} (Kit)*\n` +
-                           `  Quantidade: ${item.quantity}\n` +
-                           `  Preço: R$ ${item.data.price.toFixed(2).replace('.', ',')}`;
+                    let configDetails = '';
+                    if (item.productConfigurations) {
+                        configDetails = Object.entries(item.productConfigurations).map(([productId, config]) => {
+                            const product = (item.data.products || []).find(p => p.id === parseInt(productId));
+                            if (!product) return '';
+                            
+                            const typedConfig = config as { size?: string; customText?: string; quantity: number };
+                            const details = [];
+                            if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
+                            if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
+                            if (typedConfig.quantity > 0) details.push(`Qtd: ${typedConfig.quantity}`);
+
+                            if (details.length === 0) return '';
+                            return `\n    - ${product.name} (${details.join(', ')})`;
+                        }).join('');
+                    }
+                     return `*${item.data.name} (Kit)*${configDetails}\n` +
+                           `  Quantidade de Kits: ${item.quantity}\n` +
+                           `  Preço por Kit: R$ ${item.data.price.toFixed(2).replace('.', ',')}`;
                 }
             }).join('\n\n') +
             `\n\n*Total do Pedido: R$ ${total.toFixed(2).replace('.', ',')}*`;

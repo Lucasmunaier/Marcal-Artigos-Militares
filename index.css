@@ -723,6 +723,39 @@ main {
     margin-bottom: 0.3rem;
 }
 
+.kit-configuration-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #eee;
+}
+.kit-configuration-section h4 {
+    margin-bottom: 1rem;
+}
+.kit-product-config-item {
+    background-color: #f9f9f9;
+    padding: 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 1rem;
+    border: 1px solid #eee;
+}
+.kit-product-config-item h5 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+.kit-product-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    align-items: flex-end;
+}
+.kit-product-controls .form-group {
+    margin-bottom: 0;
+}
+.kit-item-quantity-input {
+    max-width: 100px;
+}
+
 
 /* Cart Modal */
 .cart-modal {
@@ -768,6 +801,7 @@ main {
 
 .cart-item-info {
     flex-grow: 1;
+    min-width: 0; /* Fix for flexbox text overflow */
 }
 .cart-item-info h4 {
     font-weight: 600;
@@ -776,6 +810,20 @@ main {
 .cart-item-info p {
     font-size: 0.9rem;
     color: #666;
+}
+
+.cart-item-kit-configurations {
+    list-style: none;
+    padding-left: 0;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #555;
+}
+.cart-item-kit-configurations li {
+    margin-bottom: 0.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .cart-item-actions {
