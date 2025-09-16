@@ -79,7 +79,7 @@ interface CartKitItem {
     data: Kit;
     quantity: number;
     cartItemId: string;
-    productConfigurations: { [productId: number]: { size?: string; customText?: string; quantity: number; } };
+    productConfigurations: { [productId: number]: { size?: string; customText?: string; quantity: number | string; } };
     originalPrice?: number;
 }
 
@@ -224,30 +224,32 @@ const Header = ({ onCartClick, cartItemCount, onLogoClick, isCartAnimating, sear
             <img src={ICON_URL} alt="Marçal Artigos Militares Logo" className="logo-icon" />
             <h1>Marçal Artigos Militares</h1>
         </div>
-        <div className="search-container">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="search-icon">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-            </svg>
-            <input
-                type="text"
-                className="search-input"
-                placeholder="Buscar produtos..."
-                value={searchQuery}
-                onChange={(e) => onSearchChange(e.target.value)}
-                aria-label="Buscar produtos"
-            />
-            {searchQuery && (
-                <button onClick={() => onSearchChange('')} className="search-clear-button" aria-label="Limpar busca">
-                    &times;
-                </button>
-            )}
+        <div className="header-actions">
+            <div className="search-container">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="search-icon">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+                <input
+                    type="text"
+                    className="search-input"
+                    placeholder="Buscar produtos..."
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    aria-label="Buscar produtos"
+                />
+                {searchQuery && (
+                    <button onClick={() => onSearchChange('')} className="search-clear-button" aria-label="Limpar busca">
+                        &times;
+                    </button>
+                )}
+            </div>
+            <button className={`cart-button ${isCartAnimating ? 'bouncing' : ''}`} onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
+                <svg className="cart-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l1.838-5.513A1.875 1.875 0 0 0 18.25 6H5.25L4.405 3.56A1.125 1.125 0 0 0 3.322 3H2.25zM7.5 18a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm9 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z" />
+                </svg>
+                {cartItemCount > 0 && <span key={cartItemCount} className="cart-count">{cartItemCount}</span>}
+            </button>
         </div>
-        <button className={`cart-button ${isCartAnimating ? 'bouncing' : ''}`} onClick={onCartClick} aria-label={`Ver carrinho com ${cartItemCount} itens`}>
-            <svg className="cart-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 0 0-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l1.838-5.513A1.875 1.875 0 0 0 18.25 6H5.25L4.405 3.56A1.125 1.125 0 0 0 3.322 3H2.25zM7.5 18a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm9 0a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z" />
-            </svg>
-            {cartItemCount > 0 && <span key={cartItemCount} className="cart-count">{cartItemCount}</span>}
-        </button>
     </header>
 );
 
@@ -396,11 +398,12 @@ const ProductCard = ({ item, onProductClick }: { item: DisplayItem, onProductCli
 };
 
 const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
-    const [quantity, setQuantity] = useState(1);
+    const [quantity, setQuantity] = useState<number | string>(1);
     const [selectedSize, setSelectedSize] = useState('');
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
-    const [kitConfigurations, setKitConfigurations] = useState<{ [productId: number]: { size?: string; customText?: string; quantity: number; } }>({});
+    const [kitConfigurations, setKitConfigurations] = useState<{ [productId: number]: { size?: string; customText?: string; quantity: number | string; } }>({});
+    const [validationAttempted, setValidationAttempted] = useState(false);
 
     const images = useMemo(() => (item.type === 'product' ? item.data.images : (item.data.images || []).map(url => ({ url, zoom: 1, pos_x: 0.5, pos_y: 0.5 })) ) || [], [item]);
     const [mainImage, setMainImage] = useState<ProductImage | null>(images[0] || null);
@@ -413,7 +416,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         const kit = item.data as Kit;
         return (kit.products || []).reduce((total, product) => {
             const config = kitConfigurations[product.id];
-            const itemQuantity = config?.quantity || 1;
+            const itemQuantity = Number(config?.quantity) || 1;
             return total + (product.price * itemQuantity);
         }, 0);
     }, [item, kitConfigurations]);
@@ -429,29 +432,25 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
 
     useEffect(() => {
         if (item.type === 'product') {
-            const product = item.data as Product;
-            const firstAvailableSize = (product.sizes || []).find(size => (stockData[size] ?? 0) > 0);
-            setSelectedSize(firstAvailableSize || product.sizes?.[0] || '');
+            setSelectedSize(''); // Force user to select
         } else if (item.type === 'kit') {
             const initialConfigs = {};
             (item.data.products || []).forEach(p => {
-                const productStock = getProductStock(p);
-                const firstAvailableSize = p.sizes?.find(size => (productStock[size] ?? 0) > 0);
                 initialConfigs[p.id] = {
-                    size: firstAvailableSize || p.sizes?.[0] || '',
+                    size: '', // Force user to select
                     customText: '',
                     quantity: 1,
                 };
             });
             setKitConfigurations(initialConfigs);
         }
-    }, [item, stockData]);
+    }, [item]);
 
     useEffect(() => {
         setMainImage(images[0] || null);
     }, [images]);
 
-    const handleKitConfigurationChange = (productId: number, field: 'size' | 'customText' | 'quantity', value: string | number) => {
+    const handleKitConfigurationChange = (productId: number, field: 'size' | 'customText' | 'quantity', value: string) => {
         setKitConfigurations(prev => ({
             ...prev,
             [productId]: {
@@ -462,6 +461,8 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     };
 
     const handleAddToCartClick = () => {
+        const finalQuantity = Math.max(1, Number(quantity) || 1);
+
         if (item.type === 'product') {
             const product = item.data as Product;
             if (product.is_customizable && !customText.trim()) {
@@ -475,30 +476,34 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
             // Check stock for the selected size
              if (product.sizes?.length > 0) {
                 const availableStock = stockData[selectedSize] ?? 0;
-                if (quantity > availableStock) {
+                if (finalQuantity > availableStock) {
                     alert(`Desculpe, temos apenas ${availableStock} unidades do tamanho ${selectedSize} em estoque.`);
                     return;
                 }
             } else { // No sizes
                  const availableStock = stockData['default'] ?? 0;
-                 if (quantity > availableStock) {
+                 if (finalQuantity > availableStock) {
                     alert(`Desculpe, temos apenas ${availableStock} unidades em estoque.`);
                     return;
                 }
             }
-            onAddToCart(item, quantity, selectedSize, customText);
+            onAddToCart(item, finalQuantity, selectedSize, customText);
         } else { // It's a kit
+            setValidationAttempted(true);
             const kit = item.data as Kit;
+            let isInvalid = false;
             for (const p of (kit.products || [])) {
-                if (p.is_customizable && !kitConfigurations[p.id]?.customText?.trim()) {
-                    alert(`Por favor, insira o texto para "${p.name}".`);
-                    return;
-                }
-                if (p.sizes?.length > 0 && !kitConfigurations[p.id]?.size) {
-                    alert(`Por favor, selecione um tamanho para "${p.name}".`);
-                    return;
+                const config = kitConfigurations[p.id];
+                if ((p.is_customizable && !config?.customText?.trim()) || (p.sizes?.length > 0 && !config?.size)) {
+                    isInvalid = true;
+                    break;
                 }
             }
+
+            if (isInvalid) {
+                return; // Visual feedback will show the user what's wrong
+            }
+
              const finalPrice = discountedKitPrice !== null ? discountedKitPrice : originalKitPrice;
              const kitWithFinalPrice = {
                 ...item,
@@ -522,6 +527,8 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         if (item.type !== 'product') return false;
         const product = item.data as Product;
         if (product.sizes && product.sizes.length > 0) {
+            // Only consider it out of stock if a size has been selected
+            if (!selectedSize) return false;
             return (stockData[selectedSize] ?? 0) <= 0;
         }
         return (stockData['default'] ?? 0) <= 0;
@@ -531,13 +538,14 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         if (item.type !== 'kit') return false;
         const kit = item.data as Kit;
         for (const p of (kit.products || [])) {
-            if (p.is_customizable && !kitConfigurations[p.id]?.customText?.trim()) {
+            const config = kitConfigurations[p.id];
+            if (p.is_customizable && !config?.customText?.trim()) {
                 return true;
             }
-            if (p.sizes?.length > 0 && !kitConfigurations[p.id]?.size) {
+            if (p.sizes?.length > 0 && !config?.size) {
                 return true;
             }
-             if ((kitConfigurations[p.id]?.quantity || 0) < 1) {
+             if ((Number(config?.quantity) || 0) < 1) {
                 return true;
             }
         }
@@ -552,6 +560,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                     <div className="form-group">
                         <label htmlFor="size">Tamanho:</label>
                         <select id="size" value={selectedSize} onChange={(e) => setSelectedSize(e.target.value)}>
+                            <option value="" disabled>Selecione um tamanho</option>
                             {product.sizes.map(size => {
                                 const sizeStock = stockData[size] ?? 0;
                                 const isSizeOutOfStock = sizeStock <= 0;
@@ -572,7 +581,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                 )}
                 <div className="form-group">
                     <label htmlFor="quantity">Quantidade:</label>
-                    <input id="quantity" type="number" value={quantity} onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value)))} min="1" />
+                    <input id="quantity" type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min="1" />
                 </div>
             </div>
         );
@@ -600,7 +609,9 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                                                 id={`kit-prod-size-${p.id}`} 
                                                 value={config.size || ''} 
                                                 onChange={(e) => handleKitConfigurationChange(p.id, 'size', e.target.value)}
+                                                className={validationAttempted && p.sizes?.length > 0 && !config.size ? 'invalid' : ''}
                                             >
+                                                <option value="" disabled>Selecione um tamanho</option>
                                                 {p.sizes.map(size => {
                                                     const isOutOfStock = (productStock[size] ?? 0) <= 0;
                                                     return <option key={size} value={size} disabled={isOutOfStock}>{size} {isOutOfStock ? '(Esgotado)' : ''}</option>;
@@ -617,6 +628,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                                                 value={config.customText || ''}
                                                 onChange={(e) => handleKitConfigurationChange(p.id, 'customText', e.target.value)}
                                                 placeholder="Digite o texto"
+                                                className={validationAttempted && p.is_customizable && !config.customText?.trim() ? 'invalid' : ''}
                                             />
                                         </div>
                                     )}
@@ -626,7 +638,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                                             id={`kit-prod-qty-${p.id}`}
                                             type="number"
                                             value={config.quantity}
-                                            onChange={(e) => handleKitConfigurationChange(p.id, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                                            onChange={(e) => handleKitConfigurationChange(p.id, 'quantity', e.target.value)}
                                             min="1"
                                             className="kit-item-quantity-input"
                                         />
@@ -689,7 +701,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                             {isItemTotallyOutOfStock ? (
                                 'Produto Esgotado'
                              ) : isSelectedVariantOutOfStock ? (
-                                'Variação Esgotada'
+                                'Tamanho Esgotado'
                              ) : isKitConfigurationInvalid ? (
                                 'Configure o Kit'
                             ) : showSuccess ? (
@@ -740,11 +752,11 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                                                     const product = item.data.products.find(p => p.id === parseInt(productId));
                                                     if (!product) return null;
                                                     
-                                                    const typedConfig = config as { size?: string; customText?: string; quantity: number };
+                                                    const typedConfig = config as { size?: string; customText?: string; quantity: number | string };
                                                     const details = [];
                                                     if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
                                                     if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
-                                                    if (typedConfig.quantity > 0) details.push(`Qtd: ${typedConfig.quantity}`);
+                                                    if (Number(typedConfig.quantity) > 0) details.push(`Qtd: ${typedConfig.quantity}`);
 
                                                     if (details.length === 0) return null;
 
@@ -876,7 +888,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const highlightEditorRef = useRef<HTMLDivElement>(null);
 
     // Estado de Estoque
-    const [stockLevels, setStockLevels] = useState<{ [key: number]: { [key: string]: number } }>({});
+    const [stockLevels, setStockLevels] = useState<{ [key: number]: { [key: string]: string } }>({});
     const [stockChanges, setStockChanges] = useState<{ [key: number]: { [key: string]: number } }>({});
 
     // Estado de Ordenação de Produtos
@@ -895,9 +907,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     useEffect(() => {
         const initialStocks = initialProducts.reduce((acc, p) => {
-            acc[p.id] = getProductStock(p);
+            const stockData = getProductStock(p);
+            acc[p.id] = Object.fromEntries(
+                Object.entries(stockData).map(([key, value]) => [key, String(value)])
+            );
             return acc;
-        }, {} as { [key: number]: { [key: string]: number } });
+        }, {} as { [key: number]: { [key: string]: string } });
         setStockLevels(initialStocks);
         setStockChanges({});
     }, [initialProducts]);
@@ -1651,33 +1666,26 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     
     const handleStockChange = (productId: number, value: string, size: string = 'default') => {
         if (/^\d*$/.test(value)) {
-            const newStockValue = value === '' ? 0 : parseInt(value, 10);
+            setStockLevels(prev => {
+                const newLevels = { ...prev };
+                newLevels[productId] = { ...(newLevels[productId] || {}), [size]: value };
+                return newLevels;
+            });
     
-            // Update the live display state
-            setStockLevels(prev => ({
-                ...prev,
-                [productId]: { ...(prev[productId] || {}), [size]: newStockValue },
-            }));
+            const initialStockForProduct = getProductStock(initialProducts.find(p => p.id === productId));
+            const currentStockWithStrings = { ...(stockLevels[productId] || {}), [size]: value };
+            const numericStockObject = Object.fromEntries(
+                Object.entries(currentStockWithStrings).map(([k, v]) => [k, Number(v) || 0])
+            );
     
-            // Update the state that tracks changes to be saved
-            const originalProduct = initialProducts.find(p => p.id === productId);
-            const initialStockForProduct = getProductStock(originalProduct);
-            
-            // This logic builds the final stock object to be saved for a product
-            const currentStockForProduct = stockLevels[productId] || initialStockForProduct;
-            const updatedStockObjectForProduct = { ...currentStockForProduct, [size]: newStockValue };
-    
-            // A simple way to check if there are any changes is to stringify, but it's not efficient.
-            // A better way is to set the whole object in stockChanges.
-            const hasChanged = JSON.stringify(updatedStockObjectForProduct) !== JSON.stringify(initialStockForProduct);
+            const hasChanged = JSON.stringify(numericStockObject) !== JSON.stringify(initialStockForProduct);
     
             if (hasChanged) {
                 setStockChanges(prev => ({
                     ...prev,
-                    [productId]: updatedStockObjectForProduct,
+                    [productId]: numericStockObject,
                 }));
             } else {
-                // If the change results in the stock being identical to the initial state, remove it from changes.
                 setStockChanges(prev => {
                     const newChanges = { ...prev };
                     delete newChanges[productId];
@@ -2527,9 +2535,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                                         <label htmlFor={`stock-${product.id}-${size}`}>Tamanho {size}:</label>
                                                         <input
                                                             id={`stock-${product.id}-${size}`}
-                                                            type="number"
-                                                            min="0"
-                                                            value={currentStock[size] ?? '0'}
+                                                            type="text"
+                                                            inputMode="numeric" pattern="\d*"
+                                                            value={currentStock[size] ?? ''}
                                                             onChange={(e) => handleStockChange(product.id, e.target.value, size)}
                                                             className="stock-input"
                                                         />
@@ -2541,9 +2549,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                                 <label htmlFor={`stock-${product.id}`}>Estoque:</label>
                                                 <input
                                                     id={`stock-${product.id}`}
-                                                    type="number"
-                                                    min="0"
-                                                    value={currentStock.default ?? '0'}
+                                                    type="text"
+                                                    inputMode="numeric" pattern="\d*"
+                                                    value={currentStock.default ?? ''}
                                                     onChange={(e) => handleStockChange(product.id, e.target.value, 'default')}
                                                     className="stock-input"
                                                 />
@@ -2918,7 +2926,7 @@ const App = () => {
     }, []);
 
     // Handlers
-    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number } }, originalKitPrice?: number) => {
+    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number | string; } }, originalKitPrice?: number) => {
         setIsCartAnimating(true);
         setTimeout(() => setIsCartAnimating(false), 600);
     
@@ -3011,11 +3019,11 @@ const App = () => {
                             const product = (item.data.products || []).find(p => p.id === parseInt(productId));
                             if (!product) return '';
                             
-                            const typedConfig = config as { size?: string; customText?: string; quantity: number };
+                            const typedConfig = config as { size?: string; customText?: string; quantity: number | string };
                             const details = [];
                             if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
                             if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
-                            if (typedConfig.quantity > 0) details.push(`Qtd: ${typedConfig.quantity}`);
+                            if (Number(typedConfig.quantity) > 0) details.push(`Qtd: ${typedConfig.quantity}`);
 
                             if (details.length === 0) return '';
                             return `\n    - ${product.name} (${details.join(', ')})`;
