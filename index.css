@@ -618,6 +618,11 @@ main {
     gap: 2rem;
 }
 
+/* Enforce single-column layout for kits on all screen sizes */
+.product-detail.kit-modal-layout {
+    flex-direction: column;
+}
+
 .product-detail-images {
     flex: 1;
 }
@@ -691,6 +696,16 @@ main {
     font-size: 1.2rem;
     color: var(--secondary-color);
     text-decoration: line-through;
+}
+
+.discount-percentage-badge {
+    background-color: var(--danger-color);
+    color: white;
+    padding: 0.3rem 0.7rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: var(--border-radius);
+    line-height: 1;
 }
 
 .product-controls {

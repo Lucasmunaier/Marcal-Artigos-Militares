@@ -644,7 +644,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 <button className="modal-close-button" onClick={onClose}>&times;</button>
-                <div className="product-detail">
+                <div className={`product-detail ${item.type === 'kit' ? 'kit-modal-layout' : ''}`}>
                     <div className="product-detail-images">
                          <FramedImage image={mainImage} className="main-image" altText={item.data.name} />
                         {images.length > 1 && (
@@ -667,6 +667,9 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                             <div className="price-container">
                                 <p className="price discounted">R$ {discountedKitPrice.toFixed(2).replace('.', ',')}</p>
                                 <p className="price original">R$ {originalKitPrice.toFixed(2).replace('.', ',')}</p>
+                                {item.data.discount_percentage && item.data.discount_percentage > 0 && (
+                                    <span className="discount-percentage-badge">-{item.data.discount_percentage}%</span>
+                                )}
                             </div>
                         ) : (
                             <p className="price">R$ {
