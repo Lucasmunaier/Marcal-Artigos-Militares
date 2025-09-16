@@ -1,3 +1,4 @@
+
 :root {
     --primary-color: #5A6D3B; /* Verde Oliva Principal */
     --secondary-color: #696969; /* Cinza Escuro */
@@ -1037,6 +1038,12 @@ main {
 .admin-button.secondary {
     background-color: var(--secondary-color);
 }
+.admin-button.danger {
+    background-color: var(--danger-color);
+}
+.admin-button.danger:hover {
+    background-color: #911c1c;
+}
 
 .admin-button.cancel {
     background-color: var(--secondary-color);
@@ -1759,6 +1766,73 @@ main {
 
 .admin-form .form-group .form-stock-item label {
     font-weight: 400; /* less emphasis */
+}
+
+/* Category Tree View */
+.category-tree {
+    padding-left: 0;
+    list-style: none;
+}
+.category-tree-item {
+    padding-left: calc(var(--level, 0) * 25px);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: grab;
+    transition: background-color 0.2s;
+    border-radius: var(--border-radius);
+    border: 1px solid #eee;
+    background-color: white;
+    margin-bottom: 0.5rem;
+    position: relative;
+}
+.category-tree-item.dragging {
+    opacity: 0.5;
+    background-color: #eaf2ff;
+}
+.category-tree-item.drag-over-target {
+    outline: 2px dashed var(--primary-color);
+    background-color: #f5f9ef;
+}
+
+.tree-connector {
+    color: #b0b0b0;
+    font-family: monospace;
+    font-size: 1.2rem;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+    width: 20px;
+    text-align: center;
+}
+
+.top-level-drop-zone {
+    text-align: center;
+    padding: 1rem;
+    border: 2px dashed #ccc;
+    border-radius: var(--border-radius);
+    color: var(--secondary-color);
+    margin-bottom: 1rem;
+    transition: all 0.2s ease;
+}
+.top-level-drop-zone.drag-over-target {
+    background-color: #f5f9ef;
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.category-delete-modal {
+    max-width: 500px;
+    padding: 2rem;
+}
+.category-delete-modal h3 {
+    margin-bottom: 1rem;
+}
+.category-delete-modal p {
+    margin-bottom: 1rem;
+}
+.category-delete-modal .form-group {
+    margin-top: 1.5rem;
 }
 
 

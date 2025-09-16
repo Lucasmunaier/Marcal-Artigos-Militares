@@ -849,6 +849,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     
     // Drag and Drop
     const [draggedItem, setDraggedItem] = useState<{ list: string, index: number } | null>(null);
+    const [draggedCategoryId, setDraggedCategoryId] = useState<number | null>(null);
+    const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // 'cat-id', 'top-level'
 
     // Formulário de produto
     const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
@@ -878,6 +880,14 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [orderingCategoryId, setOrderingCategoryId] = useState<number | null>(null);
     const [orderedProducts, setOrderedProducts] = useState<Product[]>([]);
     const [initialProductOrder, setInitialProductOrder] = useState<number[]>([]);
+    
+    // Modal de Exclusão de Categoria
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{
+        category: Category;
+        productsInvolved: Product[];
+        allDescendantIds: number[];
+        targetCategoryId: string;
+    } | null>(null);
 
 
     useEffect(() => {
@@ -1165,6 +1175,8 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     const handleDragEnd = () => {
         setDraggedItem(null);
+        setDraggedCategoryId(null);
+        setDragOverTarget(null);
     };
 
     const handleKitProductToggle = (productId: number) => {
@@ -1201,32 +1213,120 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     };
     
-    const handleDeleteCategory = async (categoryId: number) => {
-        const isCategoryInUseByProduct = products.some(p => (p.category_ids || []).includes(categoryId));
-        const isCategoryInUseByKit = kits.some(k => (k.category_ids || []).includes(categoryId));
-        const hasSubcategories = categories.some(c => c.parent_id === categoryId);
+    const handleDeleteCategory = async (category: Category) => {
+        const getAllDescendantIds = (catId: number): number[] => {
+            const children = categories.filter(c => c.parent_id === catId);
+            let ids = children.map(c => c.id);
+            children.forEach(child => {
+                ids = [...ids, ...getAllDescendantIds(child.id)];
+            });
+            return ids;
+        };
 
-        if (isCategoryInUseByProduct || isCategoryInUseByKit) {
-            alert('Não é possível excluir esta categoria, pois ela está sendo usada por um ou mais produtos ou kits.');
+        const allDescendantIds = getAllDescendantIds(category.id);
+        const categoryIdsToCheck = [category.id, ...allDescendantIds];
+        const productsInvolved = products.filter(p => p.category_ids.some(cid => categoryIdsToCheck.includes(cid)));
+        const hasSubcategories = categories.some(c => c.parent_id === category.id);
+        
+        if (productsInvolved.length > 0) {
+            setDeleteConfirmation({
+                category,
+                productsInvolved,
+                allDescendantIds: categoryIdsToCheck,
+                targetCategoryId: 'desassociate',
+            });
             return;
         }
-        if (hasSubcategories) {
-            alert('Não é possível excluir esta categoria, pois ela possui subcategorias. Exclua as subcategorias primeiro.');
-            return;
-        }
 
-        if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
-            setDeletingItemId(`cat-${categoryId}`);
-            const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+        if (window.confirm(`Tem certeza que deseja excluir a categoria "${category.name}"? ${hasSubcategories ? 'Suas subcategorias se tornarão categorias principais.' : ''}`)) {
+            setDeletingItemId(`cat-${category.id}`);
+            setIsSubmitting(true);
+            
+            // Make subcategories top-level
+            const children = categories.filter(c => c.parent_id === category.id);
+            if (children.length > 0) {
+                const updates = children.map(c => supabase.from('categories').update({ parent_id: null }).eq('id', c.id));
+                await Promise.all(updates);
+            }
+
+            const { error } = await supabase.from('categories').delete().eq('id', category.id);
             if (error) {
                 alert('Erro ao excluir categoria: ' + error.message);
             } else {
-                const newCategories = categories.filter(c => c.id !== categoryId);
+                const newCategories = categories
+                    .filter(c => c.id !== category.id)
+                    .map(c => children.some(child => child.id === c.id) ? { ...c, parent_id: null } : c);
                 setCategories(newCategories);
                 onDataChange(products, newCategories, kits, highlights);
             }
+            setIsSubmitting(false);
             setDeletingItemId(null);
         }
+    };
+    
+    const handleConfirmDeleteCategory = async () => {
+        if (!deleteConfirmation) return;
+
+        setIsSubmitting(true);
+        setDeletingItemId(`cat-${deleteConfirmation.category.id}`);
+        const { category, productsInvolved, allDescendantIds, targetCategoryId } = deleteConfirmation;
+
+        // 1. Update Products
+        const productUpdates = productsInvolved.map(p => {
+            let newCategoryIds = p.category_ids.filter(cid => !allDescendantIds.includes(cid));
+            if (targetCategoryId !== 'desassociate') {
+                const targetIdNum = parseInt(targetCategoryId, 10);
+                if (!newCategoryIds.includes(targetIdNum)) {
+                    newCategoryIds.push(targetIdNum);
+                }
+            }
+            return supabase.from('products').update({ category_ids: newCategoryIds }).eq('id', p.id);
+        });
+        const productResults = await Promise.all(productUpdates);
+        const productErrors = productResults.filter(res => res.error);
+        if (productErrors.length > 0) {
+            alert(`Erro ao mover ${productErrors.length} produtos. A operação foi abortada.`);
+            setIsSubmitting(false);
+            setDeletingItemId(null);
+            return;
+        }
+
+        // 2. Update Subcategories to become top-level
+        const children = categories.filter(c => c.parent_id === category.id);
+        if (children.length > 0) {
+            const childUpdates = children.map(c => supabase.from('categories').update({ parent_id: null }).eq('id', c.id));
+            await Promise.all(childUpdates);
+        }
+
+        // 3. Delete the Category
+        const { error: deleteError } = await supabase.from('categories').delete().eq('id', category.id);
+        if (deleteError) {
+             alert('Erro ao excluir categoria: ' + deleteError.message);
+             // Note: At this point, products have already been moved.
+        }
+        
+        // 4. Update local state
+        const newProducts = products.map(p => {
+            const involvedProduct = productsInvolved.find(pi => pi.id === p.id);
+            if (!involvedProduct) return p;
+            let newCategoryIds = p.category_ids.filter(cid => !allDescendantIds.includes(cid));
+            if (targetCategoryId !== 'desassociate') {
+                newCategoryIds.push(parseInt(targetCategoryId, 10));
+            }
+            return { ...p, category_ids: Array.from(new Set(newCategoryIds)) };
+        });
+
+        const newCategories = categories
+            .filter(c => c.id !== category.id)
+            .map(c => children.some(child => child.id === c.id) ? { ...c, parent_id: null } : c);
+
+        setProducts(newProducts);
+        setCategories(newCategories);
+        onDataChange(newProducts, newCategories, kits, highlights);
+        
+        setDeleteConfirmation(null);
+        setIsSubmitting(false);
+        setDeletingItemId(null);
     };
 
     const handleStartEditCategory = (category: Category) => {
@@ -1802,6 +1902,47 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         setIsSubmitting(false);
     };
     
+    // --- Category Drag and Drop ---
+    const handleCategoryDragStart = (e: React.DragEvent<HTMLElement>, categoryId: number) => {
+        e.dataTransfer.setData('text/plain', categoryId.toString());
+        e.dataTransfer.effectAllowed = 'move';
+        setDraggedCategoryId(categoryId);
+    };
+
+    const handleCategoryDragOver = (e: React.DragEvent<HTMLElement>, targetId: string) => {
+        e.preventDefault();
+        setDragOverTarget(targetId);
+    };
+
+    const handleCategoryDrop = async (e: React.DragEvent<HTMLElement>, newParentId: number | null) => {
+        e.preventDefault();
+        if (draggedCategoryId === null) return;
+
+        const isDescendant = (childId: number, parentId: number | null): boolean => {
+            if (childId === parentId) return true;
+            const child = categories.find(c => c.id === childId);
+            if (!child || !child.parent_id) return false;
+            return isDescendant(child.parent_id, parentId);
+        };
+
+        if (draggedCategoryId === newParentId || isDescendant(newParentId!, draggedCategoryId)) {
+             handleDragEnd();
+            return;
+        }
+
+        setIsSubmitting(true);
+        const { error } = await supabase.from('categories').update({ parent_id: newParentId }).eq('id', draggedCategoryId);
+        if (error) {
+            alert('Erro ao reorganizar categoria: ' + error.message);
+        } else {
+            const newCategories = categories.map(c => c.id === draggedCategoryId ? { ...c, parent_id: newParentId } : c);
+            setCategories(newCategories);
+            onDataChange(products, newCategories, kits, highlights);
+        }
+        setIsSubmitting(false);
+        handleDragEnd();
+    };
+    
     // --- Reusable Image Editor Component ---
     const ImageCropEditorModal = ({ image, onSave, onCancel, aspectRatio = '1 / 1' }: { image: ProductImage; onSave: (data: Partial<ProductImage>) => void; onCancel: () => void; aspectRatio?: string; }) => {
         const [zoom, setZoom] = useState(image.zoom);
@@ -2069,41 +2210,99 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     
     const renderCategoriesView = () => {
         const renderCategoryTree = (parentId: number | null = null, level = 0) => {
-            const children = categoriesWithoutAll.filter(c => c.parent_id === parentId);
-            return children.map(cat => (
-                <React.Fragment key={cat.id}>
-                    <li style={{ paddingLeft: `${level * 20}px` }}>
-                        {editingCategory?.id === cat.id ? (
-                            <form onSubmit={handleUpdateCategory} className="category-edit-form">
-                                <input type="text" value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} autoFocus />
-                                <select value={editingCategoryParent} onChange={(e) => setEditingCategoryParent(e.target.value)}>
-                                    <option value="">Nenhuma</option>
-                                    {categoriesWithoutAll
-                                        .filter(p => p.id !== cat.id) // Can't be its own parent
-                                        .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                                </select>
-                                <button type="submit" disabled={isSubmitting}>Salvar</button>
-                                <button type="button" onClick={() => setEditingCategory(null)}>Cancelar</button>
-                            </form>
-                        ) : (
-                            <>
-                                <span className="item-list-name">{cat.name}</span>
-                                <div className="item-list-actions">
-                                    <button onClick={() => handleStartEditCategory(cat)} className="item-list-edit-button">Editar</button>
-                                    <button onClick={() => handleDeleteCategory(cat.id)} className="item-list-delete-button" disabled={deletingItemId === `cat-${cat.id}`} aria-label={`Excluir categoria ${cat.name}`}>
-                                        {deletingItemId === `cat-${cat.id}` ? '...' : 'Excluir'}
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </li>
-                    {renderCategoryTree(cat.id, level + 1)}
-                </React.Fragment>
-            ));
+            const children = categoriesWithoutAll
+                .filter(c => c.parent_id === parentId);
+        
+            return children.map((cat, index) => {
+                const isLastChild = index === children.length - 1;
+                return (
+                    <React.Fragment key={cat.id}>
+                        <li 
+                             className={`category-tree-item ${dragOverTarget === `cat-${cat.id}` ? 'drag-over-target' : ''} ${draggedCategoryId === cat.id ? 'dragging' : ''}`}
+                             style={{ '--level': level } as React.CSSProperties}
+                             draggable
+                             onDragStart={(e) => handleCategoryDragStart(e, cat.id)}
+                             onDragOver={(e) => handleCategoryDragOver(e, `cat-${cat.id}`)}
+                             onDragLeave={() => setDragOverTarget(null)}
+                             onDrop={(e) => handleCategoryDrop(e, cat.id)}
+                             onDragEnd={handleDragEnd}
+                        >
+                            {level > 0 && <span className="tree-connector">{isLastChild ? '└─' : '├─'}</span>}
+                            <span className="drag-handle">::</span>
+                            {editingCategory?.id === cat.id ? (
+                                <form onSubmit={handleUpdateCategory} className="category-edit-form">
+                                    <input type="text" value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} autoFocus />
+                                    <select value={editingCategoryParent} onChange={(e) => setEditingCategoryParent(e.target.value)}>
+                                        <option value="">Nenhuma (Categoria Principal)</option>
+                                        {categoriesWithoutAll
+                                            .filter(p => p.id !== cat.id)
+                                            .map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                    <button type="submit" disabled={isSubmitting}>Salvar</button>
+                                    <button type="button" onClick={() => setEditingCategory(null)}>Cancelar</button>
+                                </form>
+                            ) : (
+                                <>
+                                    <span className="item-list-name">{cat.name}</span>
+                                    <div className="item-list-actions">
+                                        <button onClick={() => handleStartEditCategory(cat)} className="item-list-edit-button">Editar</button>
+                                        <button 
+                                            onClick={() => handleDeleteCategory(cat)} 
+                                            className="item-list-delete-button" 
+                                            disabled={deletingItemId === `cat-${cat.id}`} 
+                                            aria-label={`Excluir categoria ${cat.name}`}
+                                        >
+                                            {deletingItemId === `cat-${cat.id}` ? '...' : 'Excluir'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </li>
+                        {renderCategoryTree(cat.id, level + 1)}
+                    </React.Fragment>
+                );
+            });
         };
 
         return (
             <div className="admin-view">
+                 {deleteConfirmation && (
+                    <div className="modal-overlay">
+                        <div className="modal-content category-delete-modal">
+                            <h3>Excluir Categoria e Mover Produtos</h3>
+                            <p>
+                                A categoria <strong>"{deleteConfirmation.category.name}"</strong> (e suas subcategorias) contém 
+                                <strong> {deleteConfirmation.productsInvolved.length} produto(s)</strong>.
+                            </p>
+                            <p>O que você gostaria de fazer com esses produtos?</p>
+                            <div className="form-group">
+                                <label htmlFor="move-product-select">Escolha uma ação:</label>
+                                <select 
+                                    id="move-product-select"
+                                    value={deleteConfirmation.targetCategoryId}
+                                    onChange={(e) => setDeleteConfirmation(prev => prev ? {...prev, targetCategoryId: e.target.value} : null)}
+                                >
+                                    <option value="desassociate">Apenas desassociar desta categoria</option>
+                                    <optgroup label="Mover para...">
+                                        {categoriesWithoutAll
+                                            .filter(c => !deleteConfirmation.allDescendantIds.includes(c.id))
+                                            .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </optgroup>
+                                </select>
+                            </div>
+                             <div className="admin-form-actions">
+                                <button 
+                                    className="admin-button danger" 
+                                    onClick={handleConfirmDeleteCategory}
+                                    disabled={isSubmitting}
+                                >
+                                    {isSubmitting ? 'Excluindo...' : `Confirmar e Excluir Categoria`}
+                                </button>
+                                <button className="admin-button cancel" onClick={() => setDeleteConfirmation(null)}>Cancelar</button>
+                             </div>
+                        </div>
+                    </div>
+                )}
                 <button onClick={() => setActiveView('menu')} className="admin-back-button">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
@@ -2132,10 +2331,19 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     </section>
                     <section className="admin-section">
                         <h3>Categorias Existentes</h3>
+                        <p>Arraste para reorganizar.</p>
                         {categoriesWithoutAll.length === 0 ? (
                             <p className="empty-list-message">Nenhuma categoria cadastrada.</p>
                         ) : (
-                            <ul className="item-list">
+                             <ul className="item-list category-tree">
+                                <div 
+                                    className={`top-level-drop-zone ${dragOverTarget === 'top-level' ? 'drag-over-target' : ''}`}
+                                    onDragOver={(e) => handleCategoryDragOver(e, 'top-level')}
+                                    onDragLeave={() => setDragOverTarget(null)}
+                                    onDrop={(e) => handleCategoryDrop(e, null)}
+                                >
+                                    Solte aqui para ser uma Categoria Principal
+                                </div>
                                 {renderCategoryTree()}
                             </ul>
                         )}
@@ -2751,7 +2959,6 @@ const App = () => {
                         quantity,
                         cartItemId,
                         productConfigurations: kitConfigs || {},
-                        // FIX: Correctly assign originalKitPrice to the originalPrice property.
                         originalPrice: originalKitPrice
                     };
                     return [...prevCart, newItem];
