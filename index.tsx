@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -94,8 +95,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- CONFIGURAÇÕES ---
 const ADMIN_PASSWORD = 'admin'; // Senha para o painel de administração
-const WHATSAPP_NUMBER = '5531993925289'; // Número do WhatsApp para receber os pedidos
-const INSTAGRAM_PROFILE = 'lucasmunaier'; // Nome de usuário do seu Instagram
+const WHATSAPP_NUMBER = '5531993855369'; // Número do WhatsApp para receber os pedidos
+const INSTAGRAM_PROFILE = ''; // Nome de usuário do seu Instagram
 const PLACEHOLDER_IMAGE = 'https://placehold.co/400x400/F0EFEA/3C3C3B?text=Sem+Imagem';
 const ICON_URL = 'https://icqaffyqnwuetfnslcif.supabase.co/storage/v1/object/public/site-assets/icon.png';
 
@@ -856,6 +857,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [editingCategoryParent, setEditingCategoryParent] = useState<string>('');
     const [editingProductImage, setEditingProductImage] = useState<{ index: number; data: ProductImage } | null>(null);
     const [isHighlightEditorOpen, setIsHighlightEditorOpen] = useState(false);
+    const [productSearchQuery, setProductSearchQuery] = useState('');
 
 
     // Estados de Loading
@@ -2054,170 +2056,184 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         </div>
     );
     
-    const renderProductsView = () => (
-         <div className="admin-view">
-            {editingProductImage && (
-                <ImageCropEditorModal 
-                    image={editingProductImage.data}
-                    aspectRatio="1 / 1"
-                    onCancel={() => setEditingProductImage(null)}
-                    onSave={(newCrop) => {
-                        setImagePreviewObjects(current => 
-                            current.map((img, index) => 
-                                index === editingProductImage.index ? { ...img, ...newCrop } : img
-                            )
-                        );
-                        setEditingProductImage(null);
-                    }}
-                />
-            )}
-            <button onClick={() => setActiveView('menu')} className="admin-back-button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-                </svg>
-                Voltar ao Menu
-            </button>
-            <div className="admin-content-grid">
-                <section className="admin-section">
-                     <h3>{editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}</h3>
-                    <form onSubmit={handleProductFormSubmit} className="admin-form">
-                        <div className="form-group"><label htmlFor="productName">Nome</label><input type="text" id="productName" name="name" value={productForm.name} onChange={handleFormChange} required /></div>
-                        <div className="form-group"><label htmlFor="productDescription">Descrição</label><textarea id="productDescription" name="description" value={productForm.description} onChange={handleFormChange}></textarea></div>
-                        <div className="form-group"><label htmlFor="productPrice">Preço (ex: 99.90)</label><input type="number" id="productPrice" name="price" value={productForm.price} onChange={handleFormChange} step="0.01" required /></div>
-                        
-                        <div className="form-group">
-                            <label htmlFor="productImages">Imagens do Produto (arraste para reordenar)</label>
-                            <input type="file" id="productImages" multiple accept="image/*" onChange={(e) => handleImageSelect(e, false)} />
-                        </div>
-                        <div className="image-previews">
-                            {imagePreviewObjects.map((imgObj, index) => (
-                                <div 
-                                    key={imgObj.url + index} 
-                                    className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''}`}
-                                    draggable
-                                    onDragStart={() => handleDragStart(index, 'product_images')}
-                                    onDragOver={handleDragOver}
-                                    onDrop={() => handleDrop(index, 'product_images')}
-                                    onDragEnd={handleDragEnd}
-                                >
-                                    <span className="image-order-badge">{index + 1}</span>
-                                    <FramedImage image={imgObj} className="preview-framed-image" altText={`Preview ${index + 1}`} />
-                                    <div className="image-preview-actions">
-                                        <button type="button" className="edit-crop-button" onClick={() => setEditingProductImage({index, data: imgObj})}>Editar</button>
-                                        <button type="button" className="remove-image-button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        
-                        <div className="form-group-checkbox">
-                           <input type="checkbox" id="has_sizes" name="has_sizes" checked={productForm.has_sizes} onChange={handleFormChange} />
-                           <label htmlFor="has_sizes">Habilitar seleção de tamanhos</label>
-                        </div>
-                        {productForm.has_sizes && (
+    const renderProductsView = () => {
+        const filteredAdminProducts = products.filter(p => 
+            p.name.toLowerCase().includes(productSearchQuery.toLowerCase())
+        );
+    
+        return (
+             <div className="admin-view">
+                {editingProductImage && (
+                    <ImageCropEditorModal 
+                        image={editingProductImage.data}
+                        aspectRatio="1 / 1"
+                        onCancel={() => setEditingProductImage(null)}
+                        onSave={(newCrop) => {
+                            setImagePreviewObjects(current => 
+                                current.map((img, index) => 
+                                    index === editingProductImage.index ? { ...img, ...newCrop } : img
+                                )
+                            );
+                            setEditingProductImage(null);
+                        }}
+                    />
+                )}
+                <button onClick={() => setActiveView('menu')} className="admin-back-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: '16px', height: '16px' }}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                    </svg>
+                    Voltar ao Menu
+                </button>
+                <div className="admin-content-grid">
+                    <section className="admin-section">
+                         <h3>{editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}</h3>
+                        <form onSubmit={handleProductFormSubmit} className="admin-form">
+                            <div className="form-group"><label htmlFor="productName">Nome</label><input type="text" id="productName" name="name" value={productForm.name} onChange={handleFormChange} required /></div>
+                            <div className="form-group"><label htmlFor="productDescription">Descrição</label><textarea id="productDescription" name="description" value={productForm.description} onChange={handleFormChange}></textarea></div>
+                            <div className="form-group"><label htmlFor="productPrice">Preço (ex: 99.90)</label><input type="number" id="productPrice" name="price" value={productForm.price} onChange={handleFormChange} step="0.01" required /></div>
+                            
                             <div className="form-group">
-                                <label htmlFor="productSizes">Tamanhos (separados por vírgula)</label>
-                                <input type="text" id="productSizes" name="sizes" value={productForm.sizes} onChange={handleFormChange} placeholder="P, M, G" required={productForm.has_sizes} />
+                                <label htmlFor="productImages">Imagens do Produto (arraste para reordenar)</label>
+                                <input type="file" id="productImages" multiple accept="image/*" onChange={(e) => handleImageSelect(e, false)} />
                             </div>
-                        )}
-                        
-                        <div className="form-group">
-                            <label>{productForm.has_sizes ? 'Estoque por Tamanho' : 'Estoque'}</label>
-                            {productForm.has_sizes ? (
-                                <div className="size-stock-list">
-                                    {(productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)).map(size => (
-                                        <div key={size} className="size-stock-item form-stock-item">
-                                            <label htmlFor={`stock-form-${size}`}>Tamanho {size}</label>
-                                            <input
-                                                id={`stock-form-${size}`}
-                                                type="number"
-                                                min="0"
-                                                placeholder="0"
-                                                value={productFormStock[size] || ''}
-                                                onChange={(e) => setProductFormStock(prev => ({ ...prev, [size]: e.target.value }))}
-                                            />
+                            <div className="image-previews">
+                                {imagePreviewObjects.map((imgObj, index) => (
+                                    <div 
+                                        key={imgObj.url + index} 
+                                        className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''}`}
+                                        draggable
+                                        onDragStart={() => handleDragStart(index, 'product_images')}
+                                        onDragOver={handleDragOver}
+                                        onDrop={() => handleDrop(index, 'product_images')}
+                                        onDragEnd={handleDragEnd}
+                                    >
+                                        <span className="image-order-badge">{index + 1}</span>
+                                        <FramedImage image={imgObj} className="preview-framed-image" altText={`Preview ${index + 1}`} />
+                                        <div className="image-preview-actions">
+                                            <button type="button" className="edit-crop-button" onClick={() => setEditingProductImage({index, data: imgObj})}>Editar</button>
+                                            <button type="button" className="remove-image-button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
                                         </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <input
-                                    type="number"
-                                    min="0"
-                                    placeholder="0"
-                                    value={productFormStock.default || ''}
-                                    onChange={(e) => setProductFormStock({ default: e.target.value })}
-                                />
-                            )}
-                        </div>
-
-                        <div className="form-group-checkbox">
-                           <input type="checkbox" id="is_customizable" name="is_customizable" checked={productForm.is_customizable} onChange={handleFormChange} />
-                           <label htmlFor="is_customizable">Habilitar campo de texto personalizado</label>
-                        </div>
-                        {productForm.is_customizable && (
-                            <div className="form-group">
-                                <label htmlFor="custom_text_label">Rótulo do campo (ex: Nome, Tarjeta)</label>
-                                <input type="text" id="custom_text_label" name="custom_text_label" value={productForm.custom_text_label} onChange={handleFormChange} required={productForm.is_customizable} />
-                            </div>
-                        )}
-                        
-                        <div className="form-group">
-                            <label>Categorias</label>
-                            <div className="category-checklist-container">
-                                {categoriesWithoutAll.map(cat => (
-                                    <div key={cat.id} className="category-checklist-item">
-                                        <input
-                                            type="checkbox"
-                                            id={`product-cat-${cat.id}`}
-                                            checked={(productForm.category_ids || []).includes(cat.id)}
-                                            onChange={() => handleCategoryChange(cat.id, 'product')}
-                                        />
-                                        <label htmlFor={`product-cat-${cat.id}`}>{cat.name}</label>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-
-                        <div className="admin-form-actions">
-                            <button type="submit" className="admin-button" disabled={isSubmitting}>
-                                {isSubmitting ? 'Salvando...' : (editingProduct ? 'Salvar Alterações' : 'Adicionar Produto')}
-                            </button>
-                            {editingProduct && (
-                                <button type="button" className="admin-button cancel" onClick={resetProductForm}>Cancelar</button>
+                            
+                            <div className="form-group-checkbox">
+                               <input type="checkbox" id="has_sizes" name="has_sizes" checked={productForm.has_sizes} onChange={handleFormChange} />
+                               <label htmlFor="has_sizes">Habilitar seleção de tamanhos</label>
+                            </div>
+                            {productForm.has_sizes && (
+                                <div className="form-group">
+                                    <label htmlFor="productSizes">Tamanhos (separados por vírgula)</label>
+                                    <input type="text" id="productSizes" name="sizes" value={productForm.sizes} onChange={handleFormChange} placeholder="P, M, G" required={productForm.has_sizes} />
+                                </div>
                             )}
-                        </div>
-                    </form>
-                </section>
-                 <section className="admin-section">
-                        <h3>Produtos Existentes</h3>
-                        {products.length === 0 ? (
-                            <p className="empty-list-message">Nenhum produto cadastrado.</p>
-                        ) : (
-                            <ul className="item-list product-list">
-                                {products.map(product => {
-                                    const imageObject = product.images?.[0];
-                                    return (
-                                        <li key={product.id}>
-                                            <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
-                                            <div className="item-list-details">
-                                                <span className="item-list-name">{product.name}</span>
-                                                <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
-                                                <div className="item-list-actions">
-                                                    <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
-                                                    <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
-                                                        {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
-                                                    </button>
-                                                </div>
+                            
+                            <div className="form-group">
+                                <label>{productForm.has_sizes ? 'Estoque por Tamanho' : 'Estoque'}</label>
+                                {productForm.has_sizes ? (
+                                    <div className="size-stock-list">
+                                        {(productForm.sizes.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)).map(size => (
+                                            <div key={size} className="size-stock-item form-stock-item">
+                                                <label htmlFor={`stock-form-${size}`}>Tamanho {size}</label>
+                                                <input
+                                                    id={`stock-form-${size}`}
+                                                    type="number"
+                                                    min="0"
+                                                    placeholder="0"
+                                                    value={productFormStock[size] || ''}
+                                                    onChange={(e) => setProductFormStock(prev => ({ ...prev, [size]: e.target.value }))}
+                                                />
                                             </div>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
-                        )}
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        placeholder="0"
+                                        value={productFormStock.default || ''}
+                                        onChange={(e) => setProductFormStock({ default: e.target.value })}
+                                    />
+                                )}
+                            </div>
+    
+                            <div className="form-group-checkbox">
+                               <input type="checkbox" id="is_customizable" name="is_customizable" checked={productForm.is_customizable} onChange={handleFormChange} />
+                               <label htmlFor="is_customizable">Habilitar campo de texto personalizado</label>
+                            </div>
+                            {productForm.is_customizable && (
+                                <div className="form-group">
+                                    <label htmlFor="custom_text_label">Rótulo do campo (ex: Nome, Tarjeta)</label>
+                                    <input type="text" id="custom_text_label" name="custom_text_label" value={productForm.custom_text_label} onChange={handleFormChange} required={productForm.is_customizable} />
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <label>Categorias</label>
+                                <div className="category-checklist-container">
+                                    {categoriesWithoutAll.map(cat => (
+                                        <div key={cat.id} className="category-checklist-item">
+                                            <input
+                                                type="checkbox"
+                                                id={`product-cat-${cat.id}`}
+                                                checked={(productForm.category_ids || []).includes(cat.id)}
+                                                onChange={() => handleCategoryChange(cat.id, 'product')}
+                                            />
+                                            <label htmlFor={`product-cat-${cat.id}`}>{cat.name}</label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+    
+                            <div className="admin-form-actions">
+                                <button type="submit" className="admin-button" disabled={isSubmitting}>
+                                    {isSubmitting ? 'Salvando...' : (editingProduct ? 'Salvar Alterações' : 'Adicionar Produto')}
+                                </button>
+                                {editingProduct && (
+                                    <button type="button" className="admin-button cancel" onClick={resetProductForm}>Cancelar</button>
+                                )}
+                            </div>
+                        </form>
                     </section>
+                     <section className="admin-section">
+                            <h3>Produtos Existentes</h3>
+                            <div className="form-group">
+                                <input
+                                    type="text"
+                                    placeholder="Buscar produtos..."
+                                    value={productSearchQuery}
+                                    onChange={(e) => setProductSearchQuery(e.target.value)}
+                                />
+                            </div>
+                            {filteredAdminProducts.length === 0 ? (
+                                <p className="empty-list-message">Nenhum produto encontrado.</p>
+                            ) : (
+                                <ul className="item-list product-list">
+                                    {filteredAdminProducts.map(product => {
+                                        const imageObject = product.images?.[0];
+                                        return (
+                                            <li key={product.id}>
+                                                <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
+                                                <div className="item-list-details">
+                                                    <span className="item-list-name">{product.name}</span>
+                                                    <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
+                                                    <div className="item-list-actions">
+                                                        <button onClick={() => setEditingProduct(product)} className="item-list-edit-button">Editar</button>
+                                                        <button onClick={() => handleDeleteProduct(product.id)} className="item-list-delete-button" disabled={deletingItemId === `prod-${product.id}`} aria-label={`Excluir produto ${product.name}`}>
+                                                            {deletingItemId === `prod-${product.id}` ? '...' : 'Excluir'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </section>
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
     
     const renderCategoriesView = () => {
         const renderCategoryTree = (parentId: number | null = null, level = 0) => {
