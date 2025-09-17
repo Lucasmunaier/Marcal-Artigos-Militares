@@ -657,7 +657,6 @@ main {
     cursor: pointer;
     z-index: 10;
     padding: 0.5rem;
-    transition: background-color 0.2s;
     border-radius: 50%;
     width: 40px;
     height: 40px;
@@ -1631,14 +1630,6 @@ main {
 /* Highlights Admin & Item Ordering List */
 .highlights-admin-list li, .item-ordering-list li {
     cursor: grab;
-}
-
-.item-ordering-list.disabled-drag li {
-    cursor: not-allowed;
-}
-
-.item-ordering-list.disabled-drag .drag-handle {
-    display: none;
 }
 
 .highlights-admin-list li .item-list-details small {

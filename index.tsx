@@ -873,7 +873,7 @@ const AdminLogin = ({ onLogin, onBackToStore }) => {
     );
 };
 
-const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initialHighlights, onDataChange, onBackToStore }) => {
+const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initialHighlights, initialGlobalItemOrder, onDataChange, onBackToStore }) => {
     const [products, setProducts] = useState<Product[]>(initialProducts);
     const [categories, setCategories] = useState<Category[]>(initialCategories);
     const [kits, setKits] = useState<Kit[]>(initialKits);
@@ -939,6 +939,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [itemOrderingCategoryId, setItemOrderingCategoryId] = useState<number | null>(null);
     const [orderedItems, setOrderedItems] = useState<DisplayItem[]>([]);
     const [initialItemOrder, setInitialItemOrder] = useState<{ type: 'product' | 'kit'; id: number }[]>([]);
+    const [globalItemOrder, setGlobalItemOrder] = useState<{ type: 'product' | 'kit'; id: number }[]>(initialGlobalItemOrder || []);
     
     // Modal de Exclusão de Categoria
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -1035,39 +1036,40 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
     useEffect(() => {
         if (itemOrderingCategoryId !== null) {
+            let itemOrder: { type: 'product' | 'kit'; id: number }[] = [];
+            let allItemsInCategory: DisplayItem[] = [];
+
+            const allProducts: DisplayItem[] = products.map(p => ({ type: 'product', data: p }));
+            const allKits: DisplayItem[] = kits.map(k => ({ type: 'kit', data: k }));
+            
             if (itemOrderingCategoryId === 1) { // Handle "Todos"
-                const allProducts: DisplayItem[] = products.map(p => ({ type: 'product', data: p }));
-                const allKits: DisplayItem[] = kits.map(k => ({ type: 'kit', data: k }));
-                const allItems = [...allProducts, ...allKits].sort((a, b) => a.data.name.localeCompare(b.data.name));
-                setOrderedItems(allItems);
-                // No initial order to compare against for "Todos"
-                setInitialItemOrder(allItems.map(item => ({ type: item.type, id: item.data.id })));
-                return;
-            }
-
-            const category = categories.find(c => c.id === itemOrderingCategoryId);
-            const itemOrder = category?.item_order || [];
-            
-            const getDescendantIds = (catId: number, allCats: Category[]): number[] => {
-                const children = allCats.filter(c => c.parent_id === catId);
-                let descendantIds: number[] = children.map(c => c.id);
-                children.forEach(child => {
-                    descendantIds = [...descendantIds, ...getDescendantIds(child.id, allCats)];
-                });
-                return descendantIds;
-            };
-
-            const categoryIdsToFilter = [itemOrderingCategoryId, ...getDescendantIds(itemOrderingCategoryId, categories)];
-            
-            const productsInCategory: DisplayItem[] = products
-                .filter(p => p.category_ids.some(id => categoryIdsToFilter.includes(id)))
-                .map(p => ({ type: 'product', data: p }));
+                itemOrder = globalItemOrder;
+                allItemsInCategory = [...allProducts, ...allKits];
+            } else {
+                const category = categories.find(c => c.id === itemOrderingCategoryId);
+                itemOrder = category?.item_order || [];
                 
-            const kitsInCategory: DisplayItem[] = kits
-                .filter(k => (k.category_ids || []).some(id => categoryIdsToFilter.includes(id)))
-                .map(k => ({ type: 'kit', data: k }));
+                const getDescendantIds = (catId: number, allCats: Category[]): number[] => {
+                    const children = allCats.filter(c => c.parent_id === catId);
+                    let descendantIds: number[] = children.map(c => c.id);
+                    children.forEach(child => {
+                        descendantIds = [...descendantIds, ...getDescendantIds(child.id, allCats)];
+                    });
+                    return descendantIds;
+                };
 
-            const allItemsInCategory = [...productsInCategory, ...kitsInCategory];
+                const categoryIdsToFilter = [itemOrderingCategoryId, ...getDescendantIds(itemOrderingCategoryId, categories)];
+                
+                const productsInCategory: DisplayItem[] = products
+                    .filter(p => p.category_ids.some(id => categoryIdsToFilter.includes(id)))
+                    .map(p => ({ type: 'product', data: p }));
+                    
+                const kitsInCategory: DisplayItem[] = kits
+                    .filter(k => (k.category_ids || []).some(id => categoryIdsToFilter.includes(id)))
+                    .map(k => ({ type: 'kit', data: k }));
+
+                allItemsInCategory = [...productsInCategory, ...kitsInCategory];
+            }
             
             const orderMap = new Map(itemOrder.map((item, index) => [`${item.type}-${item.id}`, index]));
 
@@ -1088,7 +1090,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             setOrderedItems([]);
             setInitialItemOrder([]);
         }
-    }, [itemOrderingCategoryId, products, categories, kits]);
+    }, [itemOrderingCategoryId, products, categories, kits, globalItemOrder]);
 
     useEffect(() => {
         if (products.length > 0 && activeView === 'kits') {
@@ -1362,7 +1364,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             } else {
                 const newCategories = [...categories, addedCategory];
                 setCategories(newCategories);
-                onDataChange(products, newCategories, kits, highlights);
+                onDataChange(products, newCategories, kits, highlights, globalItemOrder);
                 form.reset();
             }
             setIsSubmitting(false);
@@ -1413,7 +1415,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     .filter(c => c.id !== category.id)
                     .map(c => children.some(child => child.id === c.id) ? { ...c, parent_id: null } : c);
                 setCategories(newCategories);
-                onDataChange(products, newCategories, kits, highlights);
+                onDataChange(products, newCategories, kits, highlights, globalItemOrder);
             }
             setIsSubmitting(false);
             setDeletingItemId(null);
@@ -1478,7 +1480,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
 
         setProducts(newProducts);
         setCategories(newCategories);
-        onDataChange(newProducts, newCategories, kits, highlights);
+        onDataChange(newProducts, newCategories, kits, highlights, globalItemOrder);
         
         setDeleteConfirmation(null);
         setIsSubmitting(false);
@@ -1512,7 +1514,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         } else {
             const newCategories = categories.map(c => c.id === updatedCategory.id ? updatedCategory : c);
             setCategories(newCategories);
-            onDataChange(products, newCategories, kits, highlights);
+            onDataChange(products, newCategories, kits, highlights, globalItemOrder);
             setEditingCategory(null);
         }
         setIsSubmitting(false);
@@ -1598,7 +1600,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             : [...products, finalProduct];
         
         setProducts(newProducts);
-        onDataChange(newProducts, categories, kits, highlights);
+        onDataChange(newProducts, categories, kits, highlights, globalItemOrder);
         resetProductForm();
         setIsSubmitting(false);
     };
@@ -1670,7 +1672,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 
                 setProducts(newProducts);
                 setKits(updatedKits);
-                onDataChange(newProducts, categories, updatedKits, highlights);
+                onDataChange(newProducts, categories, updatedKits, highlights, globalItemOrder);
             }
         } catch (e: any) {
             alert('Ocorreu um erro inesperado: ' + e.message);
@@ -1745,7 +1747,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 };
                 const newKits = kits.map(k => k.id === updatedKit.id ? updatedKitWithProducts : k);
                 setKits(newKits);
-                onDataChange(products, categories, newKits, highlights);
+                onDataChange(products, categories, newKits, highlights, globalItemOrder);
                 resetKitForm();
             }
         } else {
@@ -1771,7 +1773,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 };
                 const newKits = [...kits, addedKitWithProducts];
                 setKits(newKits);
-                onDataChange(products, categories, newKits, highlights);
+                onDataChange(products, categories, newKits, highlights, globalItemOrder);
                 resetKitForm();
             }
         }
@@ -1802,7 +1804,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             else {
                 const newKits = kits.filter(k => k.id !== kitId);
                 setKits(newKits);
-                onDataChange(products, categories, newKits, highlights);
+                onDataChange(products, categories, newKits, highlights, globalItemOrder);
             }
             setDeletingItemId(null);
         }
@@ -1885,7 +1887,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 return p;
             });
             setProducts(newProducts);
-            onDataChange(newProducts, categories, kits, highlights);
+            onDataChange(newProducts, categories, kits, highlights, globalItemOrder);
             
             // Clear only the successful changes from the changes list
             const remainingChanges = { ...stockChanges };
@@ -1985,7 +1987,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             : [...highlights, savedHighlight];
             
         setHighlights(newHighlights);
-        onDataChange(products, categories, kits, newHighlights);
+        onDataChange(products, categories, kits, newHighlights, globalItemOrder);
         resetHighlightForm();
         setIsSubmitting(false);
     };
@@ -2012,7 +2014,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         } else {
             const newHighlights = highlights.filter(h => h.id !== highlightId);
             setHighlights(newHighlights);
-            onDataChange(products, categories, kits, newHighlights);
+            onDataChange(products, categories, kits, newHighlights, globalItemOrder);
         }
         setDeletingItemId(null);
     };
@@ -2031,29 +2033,45 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         if (hasError) {
             alert('Ocorreu um erro ao salvar a nova ordem dos destaques.');
         } else {
-             onDataChange(products, categories, kits, orderedHighlights);
+             onDataChange(products, categories, kits, orderedHighlights, globalItemOrder);
         }
     };
     
     const handleSaveItemOrder = async () => {
-        if (itemOrderingCategoryId === null || itemOrderingCategoryId === 1) return;
+        if (itemOrderingCategoryId === null) return;
         setIsSubmitting(true);
         const newItemOrder = orderedItems.map(item => ({ type: item.type, id: item.data.id }));
-        const { error } = await supabase
-            .from('categories')
-            .update({ item_order: newItemOrder })
-            .eq('id', itemOrderingCategoryId);
-        
-        if (error) {
-            alert('Erro ao salvar a ordem dos itens: ' + error.message);
+
+        if (itemOrderingCategoryId === 1) {
+            const { error } = await supabase
+                .from('store_settings')
+                .upsert({ key: 'global_item_order', value: newItemOrder });
+            
+            if (error) {
+                alert('Erro ao salvar a ordem global: ' + error.message);
+            } else {
+                alert('Ordem salva com sucesso!');
+                setGlobalItemOrder(newItemOrder);
+                onDataChange(products, categories, kits, highlights, newItemOrder);
+                setInitialItemOrder(newItemOrder);
+            }
         } else {
-            alert('Ordem salva com sucesso!');
-            const newCategories = categories.map(c => 
-                c.id === itemOrderingCategoryId ? { ...c, item_order: newItemOrder } : c
-            );
-            setCategories(newCategories);
-            onDataChange(products, newCategories, kits, highlights);
-            setInitialItemOrder(newItemOrder);
+            const { error } = await supabase
+                .from('categories')
+                .update({ item_order: newItemOrder })
+                .eq('id', itemOrderingCategoryId);
+            
+            if (error) {
+                alert('Erro ao salvar a ordem dos itens: ' + error.message);
+            } else {
+                alert('Ordem salva com sucesso!');
+                const newCategories = categories.map(c => 
+                    c.id === itemOrderingCategoryId ? { ...c, item_order: newItemOrder } : c
+                );
+                setCategories(newCategories);
+                onDataChange(products, newCategories, kits, highlights, globalItemOrder);
+                setInitialItemOrder(newItemOrder);
+            }
         }
         setIsSubmitting(false);
     };
@@ -2093,7 +2111,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         } else {
             const newCategories = categories.map(c => c.id === draggedCategoryId ? { ...c, parent_id: newParentId } : c);
             setCategories(newCategories);
-            onDataChange(products, newCategories, kits, highlights);
+            onDataChange(products, newCategories, kits, highlights, globalItemOrder);
         }
         setIsSubmitting(false);
         handleDragEnd();
@@ -2891,7 +2909,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     
     const renderItemOrderingView = () => {
         const isOrderChanged = JSON.stringify(orderedItems.map(item => ({ type: item.type, id: item.data.id }))) !== JSON.stringify(initialItemOrder);
-        const canSaveOrder = itemOrderingCategoryId !== 1 && isOrderChanged && !isSubmitting;
+        const canSaveOrder = itemOrderingCategoryId !== null && isOrderChanged && !isSubmitting;
 
         return (
             <div className="admin-view">
@@ -2924,10 +2942,6 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         </select>
                     </div>
 
-                    {itemOrderingCategoryId === 1 && (
-                        <p className="admin-info-message">A ordenação da categoria "Todos" não pode ser salva. Esta visualização mostra todos os itens em ordem alfabética para referência.</p>
-                    )}
-
                     {itemOrderingCategoryId && (
                          <div className="admin-section">
                             <h4>Itens em "{categories.find(c=>c.id === itemOrderingCategoryId)?.name || 'Todos'}"</h4>
@@ -2935,7 +2949,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                             {orderedItems.length === 0 ? (
                                 <p className="empty-list-message">Nenhum item nesta categoria.</p>
                             ) : (
-                                <ul className={`item-list item-ordering-list ${itemOrderingCategoryId === 1 ? 'disabled-drag' : ''}`}>
+                                <ul className="item-list item-ordering-list">
                                     {orderedItems.map((item, index) => {
                                         const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
                                         const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
@@ -2947,12 +2961,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                         return (
                                             <li 
                                                 key={itemId}
-                                                draggable={itemOrderingCategoryId !== 1}
+                                                draggable
                                                 className={`${draggedItem?.list === 'item_ordering' && draggedItem.index === index ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isDraggingSource ? 'dragging-source' : ''}`}
-                                                onClick={() => itemOrderingCategoryId !== 1 && handleSelection('item_ordering', itemId)}
-                                                onDragStart={(e) => itemOrderingCategoryId !== 1 && handleDragStart(e, index, 'item_ordering', itemId)}
+                                                onClick={() => handleSelection('item_ordering', itemId)}
+                                                onDragStart={(e) => handleDragStart(e, index, 'item_ordering', itemId)}
                                                 onDragOver={handleDragOver}
-                                                onDrop={(e) => itemOrderingCategoryId !== 1 && handleDrop(index, 'item_ordering')}
+                                                onDrop={() => handleDrop(index, 'item_ordering')}
                                                 onDragEnd={handleDragEnd}
                                             >
                                                 <span className="drag-handle">::</span>
@@ -3026,6 +3040,7 @@ const App = () => {
     const [kits, setKits] = useState<Kit[]>([]);
     const [highlights, setHighlights] = useState<DisplayHighlight[]>([]);
     const [cart, setCart] = useState<CartItem[]>([]);
+    const [globalItemOrder, setGlobalItemOrder] = useState<{ type: 'product' | 'kit'; id: number }[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number>(1); // 1 = 'Todos'
     const [activeParentCategory, setActiveParentCategory] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -3055,6 +3070,17 @@ const App = () => {
             
             const { data: highlightsData, error: highlightsError } = await supabase.from('highlights').select('*').order('sort_order', { ascending: true });
             if(highlightsError) console.error('Erro ao buscar destaques:', highlightsError.message);
+
+            const { data: settingsData, error: settingsError } = await supabase
+                .from('store_settings')
+                .select('value')
+                .eq('key', 'global_item_order')
+                .single();
+            if (settingsData && settingsData.value) {
+                setGlobalItemOrder(settingsData.value);
+            } else if (settingsError && settingsError.code !== 'PGRST116') { // PGRST116: single row not found, which is fine
+                console.error('Erro ao buscar a ordem global:', settingsError.message);
+            }
 
             // Fetch association data for kits
             const { data: kitProductsData, error: kitProductsError } = await supabase.from('kit_products').select('*');
@@ -3251,7 +3277,7 @@ const App = () => {
         setCurrentView('adminDashboard');
     };
 
-    const handleDataChange = (newProducts, newCategories, newKits, newHighlights) => {
+    const handleDataChange = (newProducts, newCategories, newKits, newHighlights, newGlobalItemOrder?) => {
         setProducts(newProducts);
         const existingCategories = newCategories.filter(c => c.id !== 1);
         setCategories([{id: 1, name: 'Todos'}, ...existingCategories]);
@@ -3264,6 +3290,9 @@ const App = () => {
             return h;
         }).filter(h => h.type === 'image' || (h.type === 'product' && h.product));
         setHighlights(displayHighlights);
+        if (newGlobalItemOrder !== undefined) {
+            setGlobalItemOrder(newGlobalItemOrder);
+        }
     };
 
     const navigateToStore = () => {
@@ -3349,41 +3378,55 @@ const App = () => {
     const sortedDisplayItems = useMemo(() => {
         const sortableItems = [...filteredDisplayItems];
         
-        if (sortOption === 'default' && selectedCategory !== 1) {
-             const category = categories.find(c => c.id === selectedCategory);
-             // Check for new item_order first
-             if (category && category.item_order && category.item_order.length > 0) {
-                const orderMap = new Map(category.item_order.map((item, index) => [`${item.type}-${item.id}`, index]));
-                return sortableItems.sort((a, b) => {
-                    const keyA = `${a.type}-${a.data.id}`;
-                    const keyB = `${b.type}-${b.data.id}`;
-                    const indexA = orderMap.get(keyA);
-                    const indexB = orderMap.get(keyB);
+        if (sortOption === 'default') {
+            if (selectedCategory === 1) {
+                if (globalItemOrder && globalItemOrder.length > 0) {
+                    const orderMap = new Map(globalItemOrder.map((item, index) => [`${item.type}-${item.id}`, index]));
+                    return sortableItems.sort((a, b) => {
+                        const keyA = `${a.type}-${a.data.id}`;
+                        const keyB = `${b.type}-${b.data.id}`;
+                        const indexA = orderMap.get(keyA);
+                        const indexB = orderMap.get(keyB);
 
-                    if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
-                    if (indexA !== undefined) return -1;
-                    if (indexB !== undefined) return 1;
-                    // Items not in the custom order list get sorted by name at the end
-                    return a.data.name.localeCompare(b.data.name);
-                });
-             }
-             // Fallback to old product_order for backward compatibility
-             if (category && category.product_order && category.product_order.length > 0) {
-                const orderMap = new Map(category.product_order.map((id, index) => [id, index]));
-                return sortableItems.sort((a, b) => {
-                    const aIsProduct = a.type === 'product';
-                    const bIsProduct = b.type === 'product';
-                    if (!aIsProduct || !bIsProduct) return 0; // Don't sort kits this way
+                        if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
+                        if (indexA !== undefined) return -1;
+                        if (indexB !== undefined) return 1;
+                        return a.data.name.localeCompare(b.data.name);
+                    });
+                }
+            } else {
+                 const category = categories.find(c => c.id === selectedCategory);
+                 if (category && category.item_order && category.item_order.length > 0) {
+                    const orderMap = new Map(category.item_order.map((item, index) => [`${item.type}-${item.id}`, index]));
+                    return sortableItems.sort((a, b) => {
+                        const keyA = `${a.type}-${a.data.id}`;
+                        const keyB = `${b.type}-${b.data.id}`;
+                        const indexA = orderMap.get(keyA);
+                        const indexB = orderMap.get(keyB);
 
-                    const indexA = orderMap.get((a.data as Product).id);
-                    const indexB = orderMap.get((b.data as Product).id);
+                        if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
+                        if (indexA !== undefined) return -1;
+                        if (indexB !== undefined) return 1;
+                        return a.data.name.localeCompare(b.data.name);
+                    });
+                 }
+                 if (category && category.product_order && category.product_order.length > 0) {
+                    const orderMap = new Map(category.product_order.map((id, index) => [id, index]));
+                    return sortableItems.sort((a, b) => {
+                        const aIsProduct = a.type === 'product';
+                        const bIsProduct = b.type === 'product';
+                        if (!aIsProduct || !bIsProduct) return 0; // Don't sort kits this way
 
-                    if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
-                    if (indexA !== undefined) return -1;
-                    if (indexB !== undefined) return 1;
-                    return a.data.name.localeCompare(b.data.name);
-                });
-             }
+                        const indexA = orderMap.get((a.data as Product).id);
+                        const indexB = orderMap.get((b.data as Product).id);
+
+                        if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
+                        if (indexA !== undefined) return -1;
+                        if (indexB !== undefined) return 1;
+                        return a.data.name.localeCompare(b.data.name);
+                    });
+                 }
+            }
         }
         
         switch (sortOption) {
@@ -3396,10 +3439,9 @@ const App = () => {
             case 'name-desc':
                 return sortableItems.sort((a, b) => b.data.name.localeCompare(a.data.name));
             default:
-                 // For "Todos" or categories without custom order, sort alphabetically
                  return sortableItems.sort((a, b) => a.data.name.localeCompare(b.data.name));
         }
-    }, [filteredDisplayItems, sortOption, selectedCategory, categories]);
+    }, [filteredDisplayItems, sortOption, selectedCategory, categories, globalItemOrder]);
 
     const cartItemCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
     
@@ -3408,7 +3450,7 @@ const App = () => {
     }
     
     if (currentView === 'adminDashboard') {
-        return <AdminDashboard initialProducts={products} initialCategories={categories} initialKits={kits} initialHighlights={highlights} onDataChange={handleDataChange} onBackToStore={navigateToStore} />;
+        return <AdminDashboard initialProducts={products} initialCategories={categories} initialKits={kits} initialHighlights={highlights} initialGlobalItemOrder={globalItemOrder} onDataChange={handleDataChange} onBackToStore={navigateToStore} />;
     }
     
     const topLevelCategories = categories.filter(c => c.id !== 1 && !c.parent_id);
