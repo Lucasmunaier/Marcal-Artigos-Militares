@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createClient } from '@supabase/supabase-js';
@@ -901,9 +899,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
     
     // Drag and Drop
-    const [draggedItem, setDraggedItem] = useState<{ list: string, index: number } | null>(null);
+    const [draggedItem, setDraggedItem] = useState<{ list: string; index: number; ids: (string | number)[] } | null>(null);
     const [draggedCategoryId, setDraggedCategoryId] = useState<number | null>(null);
     const [dragOverTarget, setDragOverTarget] = useState<string | null>(null); // 'cat-id', 'top-level'
+    const [draggingSourceIds, setDraggingSourceIds] = useState<Set<string | number>>(new Set());
+    const [selectedItems, setSelectedItems] = useState<{ [key: string]: Set<string | number> }>({
+        product_images: new Set(),
+        kit_images: new Set(),
+        highlights: new Set(),
+        item_ordering: new Set(),
+    });
+
 
     // Formulário de produto
     const [productForm, setProductForm] = useState({ name: '', description: '', price: '', category_ids: [] as number[], sizes: '', has_sizes: false, is_customizable: false, custom_text_label: 'Nome' });
@@ -1219,42 +1225,98 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             setImagePreviewObjects(prev => prev.filter((_, i) => i !== index));
         }
     };
+    
+    const handleSelection = (list: string, id: string | number) => {
+        setSelectedItems(prev => {
+            const newSelection = new Set(prev[list]);
+            if (newSelection.has(id)) {
+                newSelection.delete(id);
+            } else {
+                newSelection.add(id);
+            }
+            return { ...prev, [list]: newSelection };
+        });
+    };
 
-    const handleDragStart = (index: number, list: string) => {
-        setDraggedItem({ list, index });
+    const handleDragStart = (e: React.DragEvent, index: number, list: string, id: string | number) => {
+        const currentSelection = selectedItems[list];
+        const isDraggingSelected = currentSelection.has(id);
+        let idsToDrag: (string | number)[];
+
+        if (!isDraggingSelected) {
+            // If dragging an unselected item, clear the current selection for this list
+            // and start a new selection with just this item.
+            const newSelection = new Set([id]);
+            setSelectedItems(prev => ({ ...prev, [list]: newSelection }));
+            idsToDrag = [id];
+        } else {
+            // If dragging an already selected item, drag the entire selection group.
+            idsToDrag = Array.from(currentSelection);
+        }
+        
+        setDraggedItem({ list, index, ids: idsToDrag });
+        setDraggingSourceIds(new Set(idsToDrag));
     };
 
     const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
         e.preventDefault();
     };
 
-    const handleDrop = (index: number, list: string) => {
+    const handleDrop = (dropIndex: number, list: string) => {
         if (!draggedItem || draggedItem.list !== list) return;
-
-        let setter;
-        if (list === 'product_images') setter = setImagePreviewObjects;
-        else if (list === 'kit_images') setter = setKitImagePreviews;
-        else if (list === 'highlights') setter = setHighlights;
-        else if (list === 'item_ordering') setter = setOrderedItems;
-        else return;
         
-        setter(currentItems => {
-            const newItems = [...currentItems];
-            const [dragged] = newItems.splice(draggedItem.index, 1);
-            newItems.splice(index, 0, dragged);
-            
-            if (list === 'highlights') {
-                handleSaveHighlightOrder(newItems as Highlight[]);
-            }
+        let currentItems: any[];
+        let setter: (items: any[]) => void;
+        let idResolver: (item: any, index: number) => string | number;
 
-            return newItems;
-        });
+        if (list === 'highlights') {
+            currentItems = highlights;
+            setter = (newItems) => { setHighlights(newItems); handleSaveHighlightOrder(newItems); };
+            idResolver = (item) => item.id;
+        } else if (list === 'product_images') {
+            currentItems = imagePreviewObjects;
+            setter = setImagePreviewObjects;
+            idResolver = (_, index) => index;
+        } else if (list === 'kit_images') {
+            currentItems = kitImagePreviews;
+            setter = setKitImagePreviews;
+            idResolver = (_, index) => index;
+        } else if (list === 'item_ordering') {
+            currentItems = orderedItems;
+            setter = setOrderedItems;
+            idResolver = (item) => `${item.type}-${item.data.id}`;
+        } else {
+            return;
+        }
+
+        const newItems = [...currentItems];
+        const draggedIds = new Set(draggedItem.ids);
+        
+        const dropTargetId = idResolver(newItems[dropIndex], dropIndex);
+        if (draggedIds.has(dropTargetId)) {
+            return; // Dropping a group onto one of its own members, do nothing.
+        }
+        
+        const movedItems = newItems.filter((item, index) => draggedIds.has(idResolver(item, index)));
+        const remainingItems = newItems.filter((item, index) => !draggedIds.has(idResolver(item, index)));
+        
+        let targetIndexInRemaining = remainingItems.findIndex((item, index) => idResolver(item, index) === dropTargetId);
+        
+        if (targetIndexInRemaining === -1) {
+             targetIndexInRemaining = remainingItems.length;
+        }
+        
+        remainingItems.splice(targetIndexInRemaining, 0, ...movedItems);
+        
+        setter(remainingItems);
+        setSelectedItems(prev => ({ ...prev, [list]: new Set() }));
     };
 
     const handleDragEnd = () => {
         setDraggedItem(null);
         setDraggedCategoryId(null);
         setDragOverTarget(null);
+        setDraggingSourceIds(new Set());
     };
 
     const handleKitProductToggle = (productId: number) => {
@@ -2174,28 +2236,36 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                             <div className="form-group"><label htmlFor="productPrice">Preço (ex: 99.90)</label><input type="number" id="productPrice" name="price" value={productForm.price} onChange={handleFormChange} step="0.01" required /></div>
                             
                             <div className="form-group">
-                                <label htmlFor="productImages">Imagens do Produto (arraste para reordenar)</label>
+                                <label htmlFor="productImages">Imagens do Produto (clique para selecionar, arraste para reordenar)</label>
                                 <input type="file" id="productImages" multiple accept="image/*" onChange={(e) => handleImageSelect(e, false)} />
                             </div>
                             <div className="image-previews">
-                                {imagePreviewObjects.map((imgObj, index) => (
-                                    <div 
-                                        key={imgObj.url + index} 
-                                        className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''}`}
-                                        draggable
-                                        onDragStart={() => handleDragStart(index, 'product_images')}
-                                        onDragOver={handleDragOver}
-                                        onDrop={() => handleDrop(index, 'product_images')}
-                                        onDragEnd={handleDragEnd}
-                                    >
-                                        <span className="image-order-badge">{index + 1}</span>
-                                        <FramedImage image={imgObj} className="preview-framed-image" altText={`Preview ${index + 1}`} />
-                                        <div className="image-preview-actions">
-                                            <button type="button" className="edit-crop-button" onClick={() => setEditingProductImage({index, data: imgObj})}>Editar</button>
-                                            <button type="button" className="remove-image-button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
+                                {imagePreviewObjects.map((imgObj, index) => {
+                                    const isSelected = selectedItems.product_images.has(index);
+                                    const isDraggingSource = draggingSourceIds.has(index);
+                                    return (
+                                        <div 
+                                            key={imgObj.url + index} 
+                                            className={`image-preview-item ${draggedItem?.list === 'product_images' && draggedItem.index === index ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isDraggingSource ? 'dragging-source' : ''}`}
+                                            draggable
+                                            onClick={(e) => {
+                                                if ((e.target as HTMLElement).closest('button')) return;
+                                                handleSelection('product_images', index);
+                                            }}
+                                            onDragStart={(e) => handleDragStart(e, index, 'product_images', index)}
+                                            onDragOver={handleDragOver}
+                                            onDrop={() => handleDrop(index, 'product_images')}
+                                            onDragEnd={handleDragEnd}
+                                        >
+                                            <span className="image-order-badge">{index + 1}</span>
+                                            <FramedImage image={imgObj} className="preview-framed-image" altText={`Preview ${index + 1}`} />
+                                            <div className="image-preview-actions">
+                                                <button type="button" className="edit-crop-button" onClick={() => setEditingProductImage({index, data: imgObj})}>Editar</button>
+                                                <button type="button" className="remove-image-button" onClick={() => removeImage(index, false)} aria-label="Remover imagem">&times;</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                             
                             <div className="form-group-checkbox">
@@ -2501,27 +2571,32 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         </div>
                         
                         <div className="form-group">
-                            <label htmlFor="kitImage">Imagens do Kit (a primeira será a principal)</label>
+                            <label htmlFor="kitImage">Imagens do Kit (clique para selecionar, arraste para reordenar)</label>
                             <input type="file" id="kitImage" multiple accept="image/*" onChange={(e) => handleImageSelect(e, true)} />
                         </div>
                         <div className="image-previews">
-                           {kitImagePreviews.map((src, index) => (
-                                <div
-                                    key={src + index}
-                                    className={`image-preview-item ${draggedItem?.list === 'kit_images' && draggedItem.index === index ? 'dragging' : ''}`}
-                                    draggable
-                                    onDragStart={() => handleDragStart(index, 'kit_images')}
-                                    onDragOver={handleDragOver}
-                                    onDrop={() => handleDrop(index, 'kit_images')}
-                                    onDragEnd={handleDragEnd}
-                                >
-                                    <span className="image-order-badge">{index + 1}</span>
-                                    <img src={src} alt={`Preview ${index + 1}`} />
-                                    <div className="image-preview-actions">
-                                        <button type="button" className="remove-image-button" onClick={() => removeImage(index, true)} aria-label="Remover imagem">&times;</button>
+                           {kitImagePreviews.map((src, index) => {
+                                const isSelected = selectedItems.kit_images.has(index);
+                                const isDraggingSource = draggingSourceIds.has(index);
+                                return (
+                                    <div
+                                        key={src + index}
+                                        className={`image-preview-item ${draggedItem?.list === 'kit_images' && draggedItem.index === index ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isDraggingSource ? 'dragging-source' : ''}`}
+                                        draggable
+                                        onClick={() => handleSelection('kit_images', index)}
+                                        onDragStart={(e) => handleDragStart(e, index, 'kit_images', index)}
+                                        onDragOver={handleDragOver}
+                                        onDrop={() => handleDrop(index, 'kit_images')}
+                                        onDragEnd={handleDragEnd}
+                                    >
+                                        <span className="image-order-badge">{index + 1}</span>
+                                        <img src={src} alt={`Preview ${index + 1}`} />
+                                        <div className="image-preview-actions">
+                                            <button type="button" className="remove-image-button" onClick={() => removeImage(index, true)} aria-label="Remover imagem">&times;</button>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
 
                         <div className="form-group">
@@ -2771,19 +2846,22 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     </section>
                     <section className="admin-section">
                         <h3>Destaques Atuais</h3>
-                        <p>Arraste para reordenar.</p>
+                        <p>Clique para selecionar, arraste para reordenar.</p>
                         {highlights.length === 0 ? (
                             <p className="empty-list-message">Nenhum destaque cadastrado.</p>
                         ) : (
                             <ul className="item-list highlights-admin-list">
                                 {highlights.map((highlight, index) => {
                                     const { image, title, subtitle } = getHighlightDisplayInfo(highlight);
+                                    const isSelected = selectedItems.highlights.has(highlight.id);
+                                    const isDraggingSource = draggingSourceIds.has(highlight.id);
                                     return (
                                         <li 
                                             key={highlight.id}
                                             draggable
-                                            className={draggedItem?.list === 'highlights' && draggedItem.index === index ? 'dragging' : ''}
-                                            onDragStart={() => handleDragStart(index, 'highlights')}
+                                            className={`${draggedItem?.list === 'highlights' && draggedItem.index === index ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isDraggingSource ? 'dragging-source' : ''}`}
+                                            onClick={() => handleSelection('highlights', highlight.id)}
+                                            onDragStart={(e) => handleDragStart(e, index, 'highlights', highlight.id)}
                                             onDragOver={handleDragOver}
                                             onDrop={() => handleDrop(index, 'highlights')}
                                             onDragEnd={handleDragEnd}
@@ -2853,7 +2931,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                     {itemOrderingCategoryId && (
                          <div className="admin-section">
                             <h4>Itens em "{categories.find(c=>c.id === itemOrderingCategoryId)?.name || 'Todos'}"</h4>
-                             <p>Arraste os itens para definir a ordem de exibição na loja.</p>
+                             <p>Clique para selecionar, arraste para reordenar.</p>
                             {orderedItems.length === 0 ? (
                                 <p className="empty-list-message">Nenhum item nesta categoria.</p>
                             ) : (
@@ -2862,13 +2940,17 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                                         const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
                                         const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
                                         const isKit = item.type === 'kit';
+                                        const itemId = `${item.type}-${item.data.id}`;
+                                        const isSelected = selectedItems.item_ordering.has(itemId);
+                                        const isDraggingSource = draggingSourceIds.has(itemId);
 
                                         return (
                                             <li 
-                                                key={`${item.type}-${item.data.id}`}
+                                                key={itemId}
                                                 draggable={itemOrderingCategoryId !== 1}
-                                                className={draggedItem?.list === 'item_ordering' && draggedItem.index === index ? 'dragging' : ''}
-                                                onDragStart={(e) => itemOrderingCategoryId !== 1 && handleDragStart(index, 'item_ordering')}
+                                                className={`${draggedItem?.list === 'item_ordering' && draggedItem.index === index ? 'dragging' : ''} ${isSelected ? 'selected' : ''} ${isDraggingSource ? 'dragging-source' : ''}`}
+                                                onClick={() => itemOrderingCategoryId !== 1 && handleSelection('item_ordering', itemId)}
+                                                onDragStart={(e) => itemOrderingCategoryId !== 1 && handleDragStart(e, index, 'item_ordering', itemId)}
                                                 onDragOver={handleDragOver}
                                                 onDrop={(e) => itemOrderingCategoryId !== 1 && handleDrop(index, 'item_ordering')}
                                                 onDragEnd={handleDragEnd}
