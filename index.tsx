@@ -737,7 +737,7 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                              ) : isSelectedVariantOutOfStock ? (
                                 'Tamanho Esgotado'
                              ) : isKitConfigurationInvalid ? (
-                                'Configure o Kit'
+                                'Adicionar o Kit'
                             ) : showSuccess ? (
                                 <>Adicionado! <span className="checkmark">✓</span></>
                             ) : (
