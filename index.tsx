@@ -75,12 +75,20 @@ interface CartProductItem {
     cartItemId: string;
 }
 
+interface KitProductConfiguration {
+    id: string;
+    productId: number;
+    size?: string;
+    customText?: string;
+    quantity: number | string;
+}
+
 interface CartKitItem {
     type: 'kit';
     data: Kit;
     quantity: number;
     cartItemId: string;
-    productConfigurations: { [productId: number]: { size?: string; customText?: string; quantity: number | string; } };
+    productConfigurations: KitProductConfiguration[];
     originalPrice?: number;
 }
 
@@ -403,22 +411,25 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     const [selectedSize, setSelectedSize] = useState('');
     const [customText, setCustomText] = useState('');
     const [showSuccess, setShowSuccess] = useState(false);
-    const [kitConfigurations, setKitConfigurations] = useState<{ [productId: number]: { size?: string; customText?: string; quantity: number | string; } }>({});
+    const [kitConfigurations, setKitConfigurations] = useState<KitProductConfiguration[]>([]);
     const [validationAttempted, setValidationAttempted] = useState(false);
+    const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
     const images = useMemo(() => (item.type === 'product' ? item.data.images : (item.data.images || []).map(url => ({ url, zoom: 1, pos_x: 0.5, pos_y: 0.5 })) ) || [], [item]);
-    const [mainImage, setMainImage] = useState<ProductImage | null>(images[0] || null);
+    const mainImage = images[currentImageIndex] || null;
+    
+    const handlePrevImage = () => setCurrentImageIndex(prev => (prev === 0 ? images.length - 1 : prev - 1));
+    const handleNextImage = () => setCurrentImageIndex(prev => (prev === images.length - 1 ? 0 : prev + 1));
 
     const stockData = useMemo(() => (item.type === 'product' ? getProductStock(item.data as Product) : {}), [item]);
 
     const originalKitPrice = useMemo(() => {
         if (item.type !== 'kit') return item.data.price;
         
-        const kit = item.data as Kit;
-        return (kit.products || []).reduce((total, product) => {
-            const config = kitConfigurations[product.id];
-            const itemQuantity = Number(config?.quantity) || 1;
-            return total + (product.price * itemQuantity);
+        return kitConfigurations.reduce((total, config) => {
+            const product = (item.data.products || []).find(p => p.id === config.productId);
+            const itemQuantity = Number(config.quantity) || 0;
+            return total + ((product?.price || 0) * itemQuantity);
         }, 0);
     }, [item, kitConfigurations]);
 
@@ -432,33 +443,40 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     }, [item, originalKitPrice]);
 
     useEffect(() => {
+        setCurrentImageIndex(0);
         if (item.type === 'product') {
             setSelectedSize(''); // Force user to select
         } else if (item.type === 'kit') {
-            const initialConfigs = {};
-            (item.data.products || []).forEach(p => {
-                initialConfigs[p.id] = {
-                    size: '', // Force user to select
-                    customText: '',
-                    quantity: 1,
-                };
-            });
+            const initialConfigs = (item.data.products || []).map(p => ({
+                id: `${p.id}-${Date.now()}-${Math.random()}`,
+                productId: p.id,
+                size: '',
+                customText: '',
+                quantity: 1,
+            }));
             setKitConfigurations(initialConfigs);
         }
     }, [item]);
 
-    useEffect(() => {
-        setMainImage(images[0] || null);
-    }, [images]);
+    const handleKitConfigurationChange = (configId: string, field: 'size' | 'customText' | 'quantity', value: string) => {
+        setKitConfigurations(prev => prev.map(config => 
+            config.id === configId ? { ...config, [field]: value } : config
+        ));
+    };
 
-    const handleKitConfigurationChange = (productId: number, field: 'size' | 'customText' | 'quantity', value: string) => {
-        setKitConfigurations(prev => ({
-            ...prev,
-            [productId]: {
-                ...(prev[productId] || { quantity: 1 }),
-                [field]: value
-            }
-        }));
+    const handleAddKitProductInstance = (productId: number) => {
+        const newInstance: KitProductConfiguration = {
+            id: `${productId}-${Date.now()}-${Math.random()}`,
+            productId: productId,
+            size: '',
+            customText: '',
+            quantity: 1,
+        };
+        setKitConfigurations(prev => [...prev, newInstance]);
+    };
+    
+    const handleRemoveKitProductInstance = (configId: string) => {
+        setKitConfigurations(prev => prev.filter(config => config.id !== configId));
     };
 
     const handleAddToCartClick = () => {
@@ -491,11 +509,11 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
             onAddToCart(item, finalQuantity, selectedSize, customText);
         } else { // It's a kit
             setValidationAttempted(true);
-            const kit = item.data as Kit;
             let isInvalid = false;
-            for (const p of (kit.products || [])) {
-                const config = kitConfigurations[p.id];
-                if ((p.is_customizable && !config?.customText?.trim()) || (p.sizes?.length > 0 && !config?.size)) {
+            for (const config of kitConfigurations) {
+                 const product = (item.data.products || []).find(p => p.id === config.productId);
+                if (!product) continue;
+                if ((product.is_customizable && !config?.customText?.trim()) || (product.sizes?.length > 0 && !config?.size)) {
                     isInvalid = true;
                     break;
                 }
@@ -537,18 +555,13 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     
     const isKitConfigurationInvalid = useMemo(() => {
         if (item.type !== 'kit') return false;
-        const kit = item.data as Kit;
-        for (const p of (kit.products || [])) {
-            const config = kitConfigurations[p.id];
-            if (p.is_customizable && !config?.customText?.trim()) {
-                return true;
-            }
-            if (p.sizes?.length > 0 && !config?.size) {
-                return true;
-            }
-             if ((Number(config?.quantity) || 0) < 1) {
-                return true;
-            }
+        for (const config of kitConfigurations) {
+            const product = (item.data.products || []).find(p => p.id === config.productId);
+            if (!product) return true; // Should not happen
+
+            if (product.is_customizable && !config.customText?.trim()) return true;
+            if (product.sizes?.length > 0 && !config.size) return true;
+            if ((Number(config.quantity) || 0) < 1) return true;
         }
         return false;
     }, [item, kitConfigurations]);
@@ -590,61 +603,73 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
     
     const renderKitDetails = () => {
         const kit = item.data as Kit;
-        const allProducts = kit.products || [];
+        const allProductsInKit = kit.products || [];
 
         return (
             <div className="kit-details">
                 <div className="kit-configuration-section">
                     <h4>Configure os itens do kit:</h4>
-                    {allProducts.map(p => {
+                    {allProductsInKit.map(p => {
+                        const configsForThisProduct = kitConfigurations.filter(c => c.productId === p.id);
+                        if (configsForThisProduct.length === 0) return null;
                         const productStock = getProductStock(p);
-                        const config = kitConfigurations[p.id] || { quantity: 1 };
+                        
                         return (
-                            <div key={p.id} className="kit-product-config-item">
-                                <h5>{p.name}</h5>
-                                <div className="kit-product-controls">
-                                    {p.sizes?.length > 0 && (
-                                        <div className="form-group">
-                                            <label htmlFor={`kit-prod-size-${p.id}`}>Tamanho:</label>
-                                            <select 
-                                                id={`kit-prod-size-${p.id}`} 
-                                                value={config.size || ''} 
-                                                onChange={(e) => handleKitConfigurationChange(p.id, 'size', e.target.value)}
-                                                className={validationAttempted && p.sizes?.length > 0 && !config.size ? 'invalid' : ''}
-                                            >
-                                                <option value="" disabled>Selecione um tamanho</option>
-                                                {p.sizes.map(size => {
-                                                    const isOutOfStock = (productStock[size] ?? 0) <= 0;
-                                                    return <option key={size} value={size} disabled={isOutOfStock}>{size} {isOutOfStock ? '(Esgotado)' : ''}</option>;
-                                                })}
-                                            </select>
-                                        </div>
-                                    )}
-                                    {p.is_customizable && (
-                                        <div className="form-group">
-                                            <label htmlFor={`kit-prod-custom-${p.id}`}>{p.custom_text_label || 'Personalização'}</label>
-                                            <input 
-                                                type="text" 
-                                                id={`kit-prod-custom-${p.id}`} 
-                                                value={config.customText || ''}
-                                                onChange={(e) => handleKitConfigurationChange(p.id, 'customText', e.target.value)}
-                                                placeholder="Digite o texto"
-                                                className={validationAttempted && p.is_customizable && !config.customText?.trim() ? 'invalid' : ''}
-                                            />
-                                        </div>
-                                    )}
-                                     <div className="form-group">
-                                        <label htmlFor={`kit-prod-qty-${p.id}`}>Quantidade:</label>
-                                        <input
-                                            id={`kit-prod-qty-${p.id}`}
-                                            type="number"
-                                            value={config.quantity}
-                                            onChange={(e) => handleKitConfigurationChange(p.id, 'quantity', e.target.value)}
-                                            min="1"
-                                            className="kit-item-quantity-input"
-                                        />
-                                    </div>
+                            <div key={p.id} className="kit-product-group">
+                                <div className="kit-product-config-header">
+                                    <h5>{p.name}</h5>
+                                    <button className="add-instance-button" onClick={() => handleAddKitProductInstance(p.id)}>+ Adicionar outro</button>
                                 </div>
+                                {configsForThisProduct.map(config => (
+                                    <div key={config.id} className="kit-product-config-item">
+                                        {configsForThisProduct.length > 1 && (
+                                            <button className="remove-instance-button" onClick={() => handleRemoveKitProductInstance(config.id)}>&times;</button>
+                                        )}
+                                        <div className="kit-product-controls">
+                                            {p.sizes?.length > 0 && (
+                                                <div className="form-group">
+                                                    <label htmlFor={`kit-prod-size-${config.id}`}>Tamanho:</label>
+                                                    <select 
+                                                        id={`kit-prod-size-${config.id}`} 
+                                                        value={config.size || ''} 
+                                                        onChange={(e) => handleKitConfigurationChange(config.id, 'size', e.target.value)}
+                                                        className={validationAttempted && p.sizes?.length > 0 && !config.size ? 'invalid' : ''}
+                                                    >
+                                                        <option value="" disabled>Selecione</option>
+                                                        {p.sizes.map(size => {
+                                                            const isOutOfStock = (productStock[size] ?? 0) <= 0;
+                                                            return <option key={size} value={size} disabled={isOutOfStock}>{size} {isOutOfStock ? '(Esgotado)' : ''}</option>;
+                                                        })}
+                                                    </select>
+                                                </div>
+                                            )}
+                                            {p.is_customizable && (
+                                                <div className="form-group">
+                                                    <label htmlFor={`kit-prod-custom-${config.id}`}>{p.custom_text_label || 'Personalização'}</label>
+                                                    <input 
+                                                        type="text" 
+                                                        id={`kit-prod-custom-${config.id}`} 
+                                                        value={config.customText || ''}
+                                                        onChange={(e) => handleKitConfigurationChange(config.id, 'customText', e.target.value)}
+                                                        placeholder="Digite o texto"
+                                                        className={validationAttempted && p.is_customizable && !config.customText?.trim() ? 'invalid' : ''}
+                                                    />
+                                                </div>
+                                            )}
+                                             <div className="form-group">
+                                                <label htmlFor={`kit-prod-qty-${config.id}`}>Qtd:</label>
+                                                <input
+                                                    id={`kit-prod-qty-${config.id}`}
+                                                    type="number"
+                                                    value={config.quantity}
+                                                    onChange={(e) => handleKitConfigurationChange(config.id, 'quantity', e.target.value)}
+                                                    min="1"
+                                                    className="kit-item-quantity-input"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         );
                     })}
@@ -659,7 +684,15 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                 <button className="modal-close-button" onClick={onClose}>&times;</button>
                 <div className={`product-detail ${item.type === 'kit' ? 'kit-modal-layout' : ''}`}>
                     <div className="product-detail-images">
-                         <FramedImage image={mainImage} className="main-image" altText={item.data.name} />
+                         <div className="modal-image-nav-container">
+                            <FramedImage image={mainImage} className="main-image" altText={item.data.name} />
+                             {images.length > 1 && (
+                                <>
+                                    <button onClick={handlePrevImage} className="modal-image-nav left" aria-label="Imagem anterior">&#10094;</button>
+                                    <button onClick={handleNextImage} className="modal-image-nav right" aria-label="Próxima imagem">&#10095;</button>
+                                </>
+                            )}
+                         </div>
                         {images.length > 1 && (
                             <div className="thumbnail-gallery">
                                 {images.map((img, index) => (
@@ -667,8 +700,8 @@ const ProductDetailModal = ({ item, onClose, onAddToCart }) => {
                                         key={index}
                                         src={img.url}
                                         alt={`Thumbnail ${index + 1}`}
-                                        className={mainImage?.url === img.url ? 'active' : ''}
-                                        onClick={() => setMainImage(img)}
+                                        className={currentImageIndex === index ? 'active' : ''}
+                                        onClick={() => setCurrentImageIndex(index)}
                                     />
                                 ))}
                             </div>
@@ -749,21 +782,22 @@ const CartModal = ({ cart, onClose, onUpdateQuantity, onRemoveItem, onCheckout, 
                                         {item.type === 'product' && item.data.is_customizable && item.customText && <p>{item.data.custom_text_label || 'Personalização'}: "{item.customText}"</p>}
                                         {item.type === 'kit' && item.productConfigurations && (
                                             <ul className="cart-item-kit-configurations">
-                                                {Object.entries(item.productConfigurations).map(([productId, config]) => {
-                                                    const product = item.data.products.find(p => p.id === parseInt(productId));
-                                                    if (!product) return null;
-                                                    
-                                                    const typedConfig = config as { size?: string; customText?: string; quantity: number | string };
-                                                    const details = [];
-                                                    if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
-                                                    if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
-                                                    if (Number(typedConfig.quantity) > 0) details.push(`Qtd: ${typedConfig.quantity}`);
-
-                                                    if (details.length === 0) return null;
+                                                {(item.data.products || []).map(product => {
+                                                    const configs = (item as CartKitItem).productConfigurations.filter(c => c.productId === product.id);
+                                                    if (configs.length === 0) return null;
 
                                                     return (
-                                                        <li key={productId}>
-                                                            - {product.name}: {details.join(', ')}
+                                                        <li key={product.id} className="cart-kit-product-group">
+                                                            <strong>- {product.name}:</strong>
+                                                            <ul>
+                                                                {configs.map(config => {
+                                                                    const details = [];
+                                                                    if (config.size) details.push(`Tamanho: ${config.size}`);
+                                                                    if (config.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${config.customText}"`);
+                                                                    if (Number(config.quantity) > 0) details.push(`Qtd: ${config.quantity}`);
+                                                                    return <li key={config.id}>{details.join(', ')}</li>;
+                                                                })}
+                                                            </ul>
                                                         </li>
                                                     );
                                                 })}
@@ -1200,29 +1234,32 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     };
 
     const handleKitProductToggle = (productId: number) => {
-        setSelectedKitProducts(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(productId)) {
-                newSet.delete(productId);
-            } else {
-                newSet.add(productId);
-            }
-            
-            // Calculate price from the new set of products
-            const total = Array.from(newSet).reduce((sum, pId) => {
+        const newSet = new Set(selectedKitProducts);
+        if (newSet.has(productId)) {
+            newSet.delete(productId);
+        } else {
+            newSet.add(productId);
+        }
+        setSelectedKitProducts(newSet);
+    
+        // Debounced or throttled price update
+        // Using useEffect to handle price calculation when selectedKitProducts changes
+    };
+
+    // Auto-calculate kit price
+    useEffect(() => {
+        if (activeView === 'kits') {
+            const total = Array.from(selectedKitProducts).reduce((sum, pId) => {
                 const product = products.find(p => p.id === pId);
                 return sum + (product?.price || 0);
             }, 0);
     
-            // Update the kit form with the new calculated price
             setKitForm(currentForm => ({
                 ...currentForm,
                 price: total > 0 ? total.toFixed(2) : ''
             }));
-    
-            return newSet;
-        });
-    };
+        }
+    }, [selectedKitProducts, products, activeView]);
     
     const handleAddCategory = async (e) => {
         e.preventDefault();
@@ -2955,7 +2992,7 @@ const App = () => {
     }, []);
 
     // Handlers
-    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: { [productId: number]: { size?: string; customText?: string; quantity: number | string; } }, originalKitPrice?: number) => {
+    const handleAddToCart = (item: DisplayItem, quantity: number, selectedSize?: string, customText?: string, kitConfigs?: KitProductConfiguration[], originalKitPrice?: number) => {
         setIsCartAnimating(true);
         setTimeout(() => setIsCartAnimating(false), 600);
     
@@ -2972,7 +3009,14 @@ const App = () => {
             } else { // Kit
                 const kit = item.data as Kit;
                 // Generate a unique ID based on configurations, sorting keys for consistency
-                const configString = JSON.stringify(Object.entries(kitConfigs || {}).sort());
+                const serializableConfigs = (kitConfigs || []).map(({ productId, size, customText, quantity }) => ({ productId, size, customText, quantity }));
+                serializableConfigs.sort((a, b) => {
+                    if (a.productId !== b.productId) return a.productId - b.productId;
+                    if (a.size !== b.size) return (a.size || '').localeCompare(b.size || '');
+                    if (a.customText !== b.customText) return (a.customText || '').localeCompare(b.customText || '');
+                    return 0;
+                });
+                const configString = JSON.stringify(serializableConfigs);
                 cartItemId = `kit-${kit.id}-${configString}`;
                 existingItem = prevCart.find(i => i.cartItemId === cartItemId);
             }
@@ -2998,7 +3042,7 @@ const App = () => {
                         data: item.data,
                         quantity,
                         cartItemId,
-                        productConfigurations: kitConfigs || {},
+                        productConfigurations: kitConfigs || [],
                         originalPrice: originalKitPrice
                     };
                     return [...prevCart, newItem];
@@ -3042,23 +3086,25 @@ const App = () => {
                            `  Quantidade: ${item.quantity}\n` +
                            `  Preço: R$ ${item.data.price.toFixed(2).replace('.', ',')}`;
                 } else { // Kit
-                    let configDetails = '';
-                    if (item.productConfigurations) {
-                        configDetails = Object.entries(item.productConfigurations).map(([productId, config]) => {
-                            const product = (item.data.products || []).find(p => p.id === parseInt(productId));
-                            if (!product) return '';
-                            
-                            const typedConfig = config as { size?: string; customText?: string; quantity: number | string };
-                            const details = [];
-                            if (typedConfig.size) details.push(`Tamanho: ${typedConfig.size}`);
-                            if (typedConfig.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${typedConfig.customText}"`);
-                            if (Number(typedConfig.quantity) > 0) details.push(`Qtd: ${typedConfig.quantity}`);
-
-                            if (details.length === 0) return '';
-                            return `\n    - ${product.name} (${details.join(', ')})`;
-                        }).join('');
-                    }
                      const kitItem = item as CartKitItem;
+                    let configDetails = '';
+                    if (kitItem.productConfigurations) {
+                         configDetails = (kitItem.data.products || []).map(product => {
+                             const configs = kitItem.productConfigurations.filter(c => c.productId === product.id);
+                             if (configs.length === 0) return '';
+                             
+                             const configLines = configs.map(config => {
+                                 const details = [];
+                                 if (config.size) details.push(`Tamanho: ${config.size}`);
+                                 if (config.customText) details.push(`${product.custom_text_label || 'Personalização'}: "${config.customText}"`);
+                                 if (Number(config.quantity) > 0) details.push(`Qtd: ${config.quantity}`);
+                                 return `(${details.join(', ')})`;
+                             }).join(', ');
+
+                             return `\n    - ${product.name} ${configLines}`;
+                         }).join('');
+                    }
+
                      let priceDetails = `Preço por Kit: R$ ${kitItem.data.price.toFixed(2).replace('.', ',')}`;
                      if (kitItem.originalPrice && kitItem.originalPrice > kitItem.data.price) {
                          priceDetails += ` (de R$ ${kitItem.originalPrice.toFixed(2).replace('.', ',')})`;
