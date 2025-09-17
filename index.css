@@ -1267,7 +1267,7 @@ main {
 }
 
 
-.product-list li, .stock-list li, .highlights-admin-list li, .product-ordering-list li {
+.product-list li, .stock-list li, .highlights-admin-list li, .item-ordering-list li {
     justify-content: flex-start;
     gap: 1rem;
 }
@@ -1392,6 +1392,16 @@ main {
     border-radius: var(--border-radius);
 }
 
+.admin-info-message {
+    padding: 1rem;
+    background-color: #eef2f7;
+    border: 1px solid #d0dae6;
+    border-radius: var(--border-radius);
+    color: #3e5a7b;
+    margin-top: 1rem;
+    text-align: center;
+}
+
 /* Image preview in Admin */
 .image-previews {
     display: flex;
@@ -1426,7 +1436,7 @@ main {
     object-fit: cover;
 }
 
-.image-preview-item.dragging, .highlights-admin-list li.dragging, .product-ordering-list li.dragging {
+.image-preview-item.dragging, .highlights-admin-list li.dragging, .item-ordering-list li.dragging {
     opacity: 0.5;
     transform: scale(1.05);
 }
@@ -1620,10 +1630,19 @@ main {
 }
 
 
-/* Highlights Admin & Product Ordering List */
-.highlights-admin-list li, .product-ordering-list li {
+/* Highlights Admin & Item Ordering List */
+.highlights-admin-list li, .item-ordering-list li {
     cursor: grab;
 }
+
+.item-ordering-list.disabled-drag li {
+    cursor: not-allowed;
+}
+
+.item-ordering-list.disabled-drag .drag-handle {
+    display: none;
+}
+
 .highlights-admin-list li .item-list-details small {
     color: var(--secondary-color);
     font-size: 0.8rem;

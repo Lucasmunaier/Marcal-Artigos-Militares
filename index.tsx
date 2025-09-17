@@ -31,6 +31,7 @@ interface Category {
     name: string;
     parent_id?: number | null;
     product_order?: number[] | null;
+    item_order?: { type: 'product' | 'kit'; id: number }[] | null;
 }
 
 interface Kit {
@@ -42,6 +43,7 @@ interface Kit {
     products: Product[];
     category_ids: number[];
     discount_percentage?: number;
+    sort_order?: number;
 }
 
 interface Highlight {
@@ -880,7 +882,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [highlights, setHighlights] = useState<Highlight[]>(initialHighlights);
     
     // Estados de Navegação
-    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock' | 'highlights' | 'ordering'>('menu');
+    const [activeView, setActiveView] = useState<'menu' | 'products' | 'categories' | 'kits' | 'stock' | 'highlights' | 'itemOrdering'>('menu');
 
     // Estados de Edição
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -927,10 +929,10 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     const [stockLevels, setStockLevels] = useState<{ [key: number]: { [key: string]: string } }>({});
     const [stockChanges, setStockChanges] = useState<{ [key: number]: { [key: string]: number } }>({});
 
-    // Estado de Ordenação de Produtos
-    const [orderingCategoryId, setOrderingCategoryId] = useState<number | null>(null);
-    const [orderedProducts, setOrderedProducts] = useState<Product[]>([]);
-    const [initialProductOrder, setInitialProductOrder] = useState<number[]>([]);
+    // Estado de Ordenação de Itens
+    const [itemOrderingCategoryId, setItemOrderingCategoryId] = useState<number | null>(null);
+    const [orderedItems, setOrderedItems] = useState<DisplayItem[]>([]);
+    const [initialItemOrder, setInitialItemOrder] = useState<{ type: 'product' | 'kit'; id: number }[]>([]);
     
     // Modal de Exclusão de Categoria
     const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -1026,9 +1028,19 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
     }, [editingHighlight]);
 
     useEffect(() => {
-        if (orderingCategoryId !== null) {
-            const category = categories.find(c => c.id === orderingCategoryId);
-            const productOrder = category?.product_order || [];
+        if (itemOrderingCategoryId !== null) {
+            if (itemOrderingCategoryId === 1) { // Handle "Todos"
+                const allProducts: DisplayItem[] = products.map(p => ({ type: 'product', data: p }));
+                const allKits: DisplayItem[] = kits.map(k => ({ type: 'kit', data: k }));
+                const allItems = [...allProducts, ...allKits].sort((a, b) => a.data.name.localeCompare(b.data.name));
+                setOrderedItems(allItems);
+                // No initial order to compare against for "Todos"
+                setInitialItemOrder(allItems.map(item => ({ type: item.type, id: item.data.id })));
+                return;
+            }
+
+            const category = categories.find(c => c.id === itemOrderingCategoryId);
+            const itemOrder = category?.item_order || [];
             
             const getDescendantIds = (catId: number, allCats: Category[]): number[] => {
                 const children = allCats.filter(c => c.parent_id === catId);
@@ -1039,26 +1051,38 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 return descendantIds;
             };
 
-            const categoryIdsToFilter = [orderingCategoryId, ...getDescendantIds(orderingCategoryId, categories)];
+            const categoryIdsToFilter = [itemOrderingCategoryId, ...getDescendantIds(itemOrderingCategoryId, categories)];
             
-            const productsInCategory = products.filter(p => p.category_ids.some(id => categoryIdsToFilter.includes(id)));
+            const productsInCategory: DisplayItem[] = products
+                .filter(p => p.category_ids.some(id => categoryIdsToFilter.includes(id)))
+                .map(p => ({ type: 'product', data: p }));
+                
+            const kitsInCategory: DisplayItem[] = kits
+                .filter(k => (k.category_ids || []).some(id => categoryIdsToFilter.includes(id)))
+                .map(k => ({ type: 'kit', data: k }));
 
-            const sorted = [...productsInCategory].sort((a, b) => {
-                const indexA = productOrder.indexOf(a.id);
-                const indexB = productOrder.indexOf(b.id);
-                if (indexA === -1 && indexB === -1) return a.name.localeCompare(b.name);
-                if (indexA === -1) return 1;
-                if (indexB === -1) return -1;
+            const allItemsInCategory = [...productsInCategory, ...kitsInCategory];
+            
+            const orderMap = new Map(itemOrder.map((item, index) => [`${item.type}-${item.id}`, index]));
+
+            const sorted = [...allItemsInCategory].sort((a, b) => {
+                const keyA = `${a.type}-${a.data.id}`;
+                const keyB = `${b.type}-${b.data.id}`;
+                const indexA = orderMap.get(keyA);
+                const indexB = orderMap.get(keyB);
+
+                if (indexA === undefined && indexB === undefined) return a.data.name.localeCompare(b.data.name);
+                if (indexA === undefined) return 1;
+                if (indexB === undefined) return -1;
                 return indexA - indexB;
             });
-            setOrderedProducts(sorted);
-            setInitialProductOrder(sorted.map(p => p.id));
+            setOrderedItems(sorted);
+            setInitialItemOrder(sorted.map(item => ({ type: item.type, id: item.data.id })));
         } else {
-            setOrderedProducts([]);
-            setInitialProductOrder([]);
+            setOrderedItems([]);
+            setInitialItemOrder([]);
         }
-    }, [orderingCategoryId, products, categories]);
-
+    }, [itemOrderingCategoryId, products, categories, kits]);
 
     useEffect(() => {
         if (products.length > 0 && activeView === 'kits') {
@@ -1211,7 +1235,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         if (list === 'product_images') setter = setImagePreviewObjects;
         else if (list === 'kit_images') setter = setKitImagePreviews;
         else if (list === 'highlights') setter = setHighlights;
-        else if (list === 'product_ordering') setter = setOrderedProducts;
+        else if (list === 'item_ordering') setter = setOrderedItems;
         else return;
         
         setter(currentItems => {
@@ -1663,7 +1687,13 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 resetKitForm();
             }
         } else {
-            const { data: addedKit, error } = await supabase.from('kits').insert(kitData).select().single();
+             const { data: countData, error: countError } = await supabase.from('kits').select('count', { count: 'exact' });
+            if (countError) { alert('Erro ao contar kits: ' + countError.message); setIsSubmitting(false); return; }
+            const kitCount = countData?.[0]?.count || 0;
+
+            const kitDataWithOrder = { ...kitData, sort_order: kitCount };
+
+            const { data: addedKit, error } = await supabase.from('kits').insert(kitDataWithOrder).select().single();
             if (error) { alert('Erro ao adicionar kit: ' + error.message); }
             else {
                 const kitProductInserts = productAssociations.map(pid => ({ kit_id: addedKit.id, product_id: pid }));
@@ -1943,24 +1973,25 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         }
     };
     
-    const handleSaveProductOrder = async () => {
-        if (orderingCategoryId === null) return;
+    const handleSaveItemOrder = async () => {
+        if (itemOrderingCategoryId === null || itemOrderingCategoryId === 1) return;
         setIsSubmitting(true);
-        const newProductOrder = orderedProducts.map(p => p.id);
+        const newItemOrder = orderedItems.map(item => ({ type: item.type, id: item.data.id }));
         const { error } = await supabase
             .from('categories')
-            .update({ product_order: newProductOrder })
-            .eq('id', orderingCategoryId);
+            .update({ item_order: newItemOrder })
+            .eq('id', itemOrderingCategoryId);
         
         if (error) {
-            alert('Erro ao salvar a ordem dos produtos: ' + error.message);
+            alert('Erro ao salvar a ordem dos itens: ' + error.message);
         } else {
             alert('Ordem salva com sucesso!');
             const newCategories = categories.map(c => 
-                c.id === orderingCategoryId ? { ...c, product_order: newProductOrder } : c
+                c.id === itemOrderingCategoryId ? { ...c, item_order: newItemOrder } : c
             );
             setCategories(newCategories);
             onDataChange(products, newCategories, kits, highlights);
+            setInitialItemOrder(newItemOrder);
         }
         setIsSubmitting(false);
     };
@@ -2102,7 +2133,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             <button className="admin-button" onClick={() => setActiveView('kits')}>Gerenciar Kits</button>
             <button className="admin-button" onClick={() => setActiveView('stock')}>Gerenciar Estoque</button>
             <button className="admin-button" onClick={() => setActiveView('highlights')}>Gerenciar Destaques</button>
-            <button className="admin-button" onClick={() => setActiveView('ordering')}>Ordenar Produtos</button>
+            <button className="admin-button" onClick={() => setActiveView('itemOrdering')}>Ordenar Itens da Loja</button>
         </div>
     );
     
@@ -2780,8 +2811,9 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
         )
     };
     
-    const renderOrderingView = () => {
-        const isOrderChanged = JSON.stringify(orderedProducts.map(p => p.id)) !== JSON.stringify(initialProductOrder);
+    const renderItemOrderingView = () => {
+        const isOrderChanged = JSON.stringify(orderedItems.map(item => ({ type: item.type, id: item.data.id }))) !== JSON.stringify(initialItemOrder);
+        const canSaveOrder = itemOrderingCategoryId !== 1 && isOrderChanged && !isSubmitting;
 
         return (
             <div className="admin-view">
@@ -2791,12 +2823,12 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                 </button>
                 <section className="admin-section">
                     <div className="admin-section-header">
-                        <h3>Ordenar Produtos por Categoria</h3>
-                         {orderingCategoryId && (
+                        <h3>Ordenar Itens da Loja por Categoria</h3>
+                         {itemOrderingCategoryId && (
                              <button
                                 className="admin-button"
-                                onClick={handleSaveProductOrder}
-                                disabled={!isOrderChanged || isSubmitting}
+                                onClick={handleSaveItemOrder}
+                                disabled={!canSaveOrder}
                             >
                                 {isSubmitting ? 'Salvando...' : 'Salvar Ordem'}
                             </button>
@@ -2806,39 +2838,50 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         <label htmlFor="category-order-select">Selecione uma Categoria</label>
                         <select
                             id="category-order-select"
-                            value={orderingCategoryId || ''}
-                            onChange={(e) => setOrderingCategoryId(e.target.value ? parseInt(e.target.value) : null)}
+                            value={itemOrderingCategoryId || ''}
+                            onChange={(e) => setItemOrderingCategoryId(e.target.value ? parseInt(e.target.value) : null)}
                         >
                             <option value="">-- Escolha uma categoria --</option>
-                            {categoriesWithoutAll.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            {[{ id: 1, name: 'Todos' }, ...categoriesWithoutAll].map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                     </div>
 
-                    {orderingCategoryId && (
+                    {itemOrderingCategoryId === 1 && (
+                        <p className="admin-info-message">A ordenação da categoria "Todos" não pode ser salva. Esta visualização mostra todos os itens em ordem alfabética para referência.</p>
+                    )}
+
+                    {itemOrderingCategoryId && (
                          <div className="admin-section">
-                            <h4>Produtos em "{categories.find(c=>c.id === orderingCategoryId)?.name}"</h4>
-                             <p>Arraste os produtos para definir a ordem de exibição na loja.</p>
-                            {orderedProducts.length === 0 ? (
-                                <p className="empty-list-message">Nenhum produto nesta categoria.</p>
+                            <h4>Itens em "{categories.find(c=>c.id === itemOrderingCategoryId)?.name || 'Todos'}"</h4>
+                             <p>Arraste os itens para definir a ordem de exibição na loja.</p>
+                            {orderedItems.length === 0 ? (
+                                <p className="empty-list-message">Nenhum item nesta categoria.</p>
                             ) : (
-                                <ul className="item-list product-ordering-list">
-                                    {orderedProducts.map((product, index) => {
-                                        const imageObject = product.images?.[0];
+                                <ul className={`item-list item-ordering-list ${itemOrderingCategoryId === 1 ? 'disabled-drag' : ''}`}>
+                                    {orderedItems.map((item, index) => {
+                                        const imageObject = item.type === 'product' ? item.data.images?.[0] : null;
+                                        const kitImageUrl = item.type === 'kit' ? item.data.images?.[0] : null;
+                                        const isKit = item.type === 'kit';
+
                                         return (
                                             <li 
-                                                key={product.id}
-                                                draggable
-                                                className={draggedItem?.list === 'product_ordering' && draggedItem.index === index ? 'dragging' : ''}
-                                                onDragStart={() => handleDragStart(index, 'product_ordering')}
+                                                key={`${item.type}-${item.data.id}`}
+                                                draggable={itemOrderingCategoryId !== 1}
+                                                className={draggedItem?.list === 'item_ordering' && draggedItem.index === index ? 'dragging' : ''}
+                                                onDragStart={(e) => itemOrderingCategoryId !== 1 && handleDragStart(index, 'item_ordering')}
                                                 onDragOver={handleDragOver}
-                                                onDrop={() => handleDrop(index, 'product_ordering')}
+                                                onDrop={(e) => itemOrderingCategoryId !== 1 && handleDrop(index, 'item_ordering')}
                                                 onDragEnd={handleDragEnd}
                                             >
                                                 <span className="drag-handle">::</span>
-                                                <FramedImage image={imageObject} className="item-list-img" altText={product.name} />
+                                                 {isKit ? (
+                                                    <img src={kitImageUrl || PLACEHOLDER_IMAGE} alt={item.data.name} className="item-list-img" />
+                                                ) : (
+                                                    <FramedImage image={imageObject} className="item-list-img" altText={item.data.name} />
+                                                )}
                                                 <div className="item-list-details">
-                                                    <span className="item-list-name">{product.name}</span>
-                                                    <span className="item-list-price">R$ {product.price.toFixed(2).replace('.',',')}</span>
+                                                    <span className="item-list-name">{item.data.name} {isKit && '(Kit)'}</span>
+                                                    <span className="item-list-price">R$ {item.data.price.toFixed(2).replace('.',',')}</span>
                                                 </div>
                                             </li>
                                         );
@@ -2870,7 +2913,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             {activeView === 'kits' && renderKitsView()}
             {activeView === 'stock' && renderStockView()}
             {activeView === 'highlights' && renderHighlightsView()}
-            {activeView === 'ordering' && renderOrderingView()}
+            {activeView === 'itemOrdering' && renderItemOrderingView()}
         </div>
     );
 };
@@ -2925,7 +2968,7 @@ const App = () => {
             if (categoriesError) console.error('Erro ao buscar categorias:', categoriesError.message);
             else setCategories([{ id: 1, name: 'Todos' }, ...(categoriesData || [])]);
             
-            const { data: kitsData, error: kitsError } = await supabase.from('kits').select('*');
+            const { data: kitsData, error: kitsError } = await supabase.from('kits').select('*').order('sort_order', { ascending: true, nullsFirst: false });
             if(kitsError) console.error('Erro ao buscar kits:', kitsError.message);
             
             const { data: highlightsData, error: highlightsError } = await supabase.from('highlights').select('*').order('sort_order', { ascending: true });
@@ -3186,7 +3229,7 @@ const App = () => {
     const displayItems = useMemo((): DisplayItem[] => {
         const productItems: DisplayItem[] = products.map(p => ({ type: 'product', data: p }));
         const kitItems: DisplayItem[] = kits.map(k => ({ type: 'kit', data: k }));
-        return [...productItems, ...kitItems].sort((a,b) => a.data.id - b.data.id);
+        return [...productItems, ...kitItems];
     }, [products, kits]);
 
     const filteredDisplayItems = useMemo(() => {
@@ -3223,8 +3266,26 @@ const App = () => {
 
     const sortedDisplayItems = useMemo(() => {
         const sortableItems = [...filteredDisplayItems];
+        
         if (sortOption === 'default' && selectedCategory !== 1) {
              const category = categories.find(c => c.id === selectedCategory);
+             // Check for new item_order first
+             if (category && category.item_order && category.item_order.length > 0) {
+                const orderMap = new Map(category.item_order.map((item, index) => [`${item.type}-${item.id}`, index]));
+                return sortableItems.sort((a, b) => {
+                    const keyA = `${a.type}-${a.data.id}`;
+                    const keyB = `${b.type}-${b.data.id}`;
+                    const indexA = orderMap.get(keyA);
+                    const indexB = orderMap.get(keyB);
+
+                    if (indexA !== undefined && indexB !== undefined) return indexA - indexB;
+                    if (indexA !== undefined) return -1;
+                    if (indexB !== undefined) return 1;
+                    // Items not in the custom order list get sorted by name at the end
+                    return a.data.name.localeCompare(b.data.name);
+                });
+             }
+             // Fallback to old product_order for backward compatibility
              if (category && category.product_order && category.product_order.length > 0) {
                 const orderMap = new Map(category.product_order.map((id, index) => [id, index]));
                 return sortableItems.sort((a, b) => {
@@ -3253,7 +3314,8 @@ const App = () => {
             case 'name-desc':
                 return sortableItems.sort((a, b) => b.data.name.localeCompare(a.data.name));
             default:
-                return sortableItems;
+                 // For "Todos" or categories without custom order, sort alphabetically
+                 return sortableItems.sort((a, b) => a.data.name.localeCompare(b.data.name));
         }
     }, [filteredDisplayItems, sortOption, selectedCategory, categories]);
 
