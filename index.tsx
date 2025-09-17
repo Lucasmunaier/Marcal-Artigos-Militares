@@ -1207,6 +1207,19 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
             } else {
                 newSet.add(productId);
             }
+            
+            // Calculate price from the new set of products
+            const total = Array.from(newSet).reduce((sum, pId) => {
+                const product = products.find(p => p.id === pId);
+                return sum + (product?.price || 0);
+            }, 0);
+    
+            // Update the kit form with the new calculated price
+            setKitForm(currentForm => ({
+                ...currentForm,
+                price: total > 0 ? total.toFixed(2) : ''
+            }));
+    
             return newSet;
         });
     };
@@ -2398,7 +2411,7 @@ const AdminDashboard = ({ initialProducts, initialCategories, initialKits, initi
                         <div className="form-group"><label htmlFor="kitName">Nome do Kit</label><input type="text" id="kitName" name="name" value={kitForm.name} onChange={handleKitFormChange} required /></div>
                         <div className="form-group"><label htmlFor="kitDescription">Descrição</label><textarea id="kitDescription" name="description" value={kitForm.description} onChange={handleKitFormChange}></textarea></div>
                         <div className="form-group-inline">
-                            <div className="form-group"><label htmlFor="kitPrice">Preço (Informativo)</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required /></div>
+                            <div className="form-group"><label htmlFor="kitPrice">Preço do Kit</label><input type="number" id="kitPrice" name="price" value={kitForm.price} onChange={handleKitFormChange} step="0.01" required placeholder="Soma automática" /></div>
                             <div className="form-group"><label htmlFor="kitDiscount">Desconto (%)</label><input type="number" id="kitDiscount" name="discount_percentage" value={kitForm.discount_percentage} onChange={handleKitFormChange} min="0" max="100" step="1" placeholder="ex: 10" /></div>
                         </div>
                         
